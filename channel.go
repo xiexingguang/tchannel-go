@@ -615,7 +615,10 @@ func (ch *Channel) Close() {
 	ch.mutable.Lock()
 
 	if ch.mutable.l != nil {
-		ch.mutable.l.Close()
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			ch.mutable.l.Close()
+		}()
 	}
 
 	ch.mutable.state = ChannelStartClose
