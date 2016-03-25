@@ -159,7 +159,19 @@ func TestServiceCallReqTerrible(t *testing.T) {
 	payload.WriteUint32(42)              // TTL
 	payload.WriteBytes(make([]byte, 25)) // tracing
 	payload.WriteLen8String("bankmoji")  // service
+	payload.WriteSingleByte(3)
+	payload.WriteLen8String("k1")
+	payload.WriteLen8String("v1")
+	payload.WriteLen8String("k2")
+	payload.WriteLen8String("v2")
+	payload.WriteLen8String("k3")
+	payload.WriteLen8String("v3")
+	payload.WriteSingleByte(byte(ChecksumTypeCrc32C))
+	payload.WriteUint32(uint32(ChecksumTypeCrc32C.ChecksumSize()))
+	payload.WriteLen16String("method")
+
 	assert.Equal(t, "bankmoji", f.Service(), "Failed to read service name from frame.")
+	assert.Equal(t, "method", f.Method())
 }
 
 func TestServiceOtherMessages(t *testing.T) {

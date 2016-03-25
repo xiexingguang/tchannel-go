@@ -7,11 +7,19 @@ import (
 	"time"
 )
 
+// CallFrame is an interface that abstracts access to the call req frame.
+type CallFrame interface {
+	// Service is the name of the destination service.
+	Service() string
+	// Method is the name of the method being called.
+	Method() string
+}
+
 // RelayHosts allows external wrappers to inject peer selection logic for
 // relaying.
 type RelayHosts interface {
-	// Get returns the host:port of the best peer for the group.
-	Get(service string) string
+	// Get returns the host:port of the best peer for the given call.
+	Get(CallFrame) string
 	// TODO: add MarkFailed and MarkOK to for feedback loop into peer selection.
 }
 
@@ -85,8 +93,7 @@ func (r *Relayer) handleCallReq(f *Frame) error {
 	}
 
 	// Get the destination
-	svc := f.Service()
-	hostPort := r.hosts.Get(svc)
+	hostPort := r.hosts.Get(f)
 	if hostPort == "" {
 		return errors.New("no available peer for group")
 	}
