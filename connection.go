@@ -119,6 +119,14 @@ type ConnectionOptions struct {
 	// The size of send channel buffers.  Defaults to 512
 	SendBufferSize int
 
+	// HealthInterval is how often TChannel does a health check.
+	// It defaults to time.Second.
+	HealthInterval time.Duration
+
+	// HealthTimeout is how long the health check will wait for a response
+	// before considering the health check as failed.
+	HealthTimeout time.Duration
+
 	// The type of checksum to use when sending messages
 	ChecksumType ChecksumType
 }
@@ -140,8 +148,7 @@ type Connection struct {
 	channelConnectionCommon
 
 	connID          uint32
-	checksumType    ChecksumType
-	framePool       FramePool
+	opts            ConnectionOptions
 	conn            net.Conn
 	localPeerInfo   LocalPeerInfo
 	remotePeerInfo  PeerInfo
@@ -165,6 +172,9 @@ type Connection struct {
 	// ignoreRemotePeer is used to avoid a data race between setting the RemotePeerInfo
 	// and the connection failing, causing a read of the RemotePeerInfo at the same time.
 	ignoreRemotePeer bool
+	// healthCheckQuit is used to signal the health checks to stop.
+	healthCheckQuit    chan struct{}
+	healthCheckStopped atomic.Uint32
 }
 
 // nextConnID gives an ID for each connection for debugging purposes.
@@ -221,11 +231,13 @@ func (ch *Channel) newInboundConnection(conn net.Conn, events connectionEvents) 
 
 // Creates a new connection in a given initial state
 func (ch *Channel) newConnection(conn net.Conn, initialState connectionState, events connectionEvents) *Connection {
-	opts := &ch.connectionOptions
+	opts := ch.connectionOptions
 
-	checksumType := opts.ChecksumType
-	if checksumType == ChecksumTypeNone {
-		checksumType = ChecksumTypeCrc32C
+	if opts.ChecksumType == ChecksumTypeNone {
+		opts.ChecksumType = ChecksumTypeCrc32C
+	}
+	if opts.FramePool == nil {
+		opts.FramePool = DefaultFramePool
 	}
 
 	sendBufferSize := opts.SendBufferSize
@@ -236,11 +248,6 @@ func (ch *Channel) newConnection(conn net.Conn, initialState connectionState, ev
 	recvBufferSize := opts.RecvBufferSize
 	if recvBufferSize <= 0 {
 		recvBufferSize = 512
-	}
-
-	framePool := opts.FramePool
-	if framePool == nil {
-		framePool = DefaultFramePool
 	}
 
 	connID := nextConnID.Inc()
@@ -257,16 +264,16 @@ func (ch *Channel) newConnection(conn net.Conn, initialState connectionState, ev
 
 		connID:          connID,
 		conn:            conn,
-		framePool:       framePool,
+		opts:            opts,
 		state:           initialState,
 		sendCh:          make(chan *Frame, sendBufferSize),
 		localPeerInfo:   peerInfo,
-		checksumType:    checksumType,
 		inbound:         newMessageExchangeSet(log, messageExchangeSetInbound),
 		outbound:        newMessageExchangeSet(log, messageExchangeSetOutbound),
 		handler:         channelHandler{ch},
 		events:          events,
 		commonStatsTags: ch.commonStatsTags,
+		healthCheckQuit: make(chan struct{}),
 	}
 	c.log = log
 	c.inbound.onRemoved = c.checkExchanges
@@ -288,7 +295,8 @@ func (c *Connection) IsActive() bool {
 	return c.readState() == connectionActive
 }
 
-func (c *Connection) callOnActive() {
+func (c *Connection) connectionActive() {
+	go c.healthCheck(c.connID)
 	if f := c.events.OnActive; f != nil {
 		f(c)
 	}
@@ -348,7 +356,7 @@ func (c *Connection) sendInit(ctx context.Context) error {
 	}
 	defer c.pendingExchangeMethodDone()
 
-	mex, err := c.outbound.newExchange(ctx, c.framePool, req.messageType(), req.ID(), 1)
+	mex, err := c.outbound.newExchange(ctx, c.opts.FramePool, req.messageType(), req.ID(), 1)
 	if err != nil {
 		return c.connectionError("create init req", err)
 	}
@@ -417,7 +425,7 @@ func (c *Connection) handleInitReq(frame *Frame) {
 		return nil
 	})
 
-	c.callOnActive()
+	c.connectionActive()
 }
 
 // ping sends a ping message and waits for a ping response.
@@ -429,7 +437,7 @@ func (c *Connection) ping(ctx context.Context) error {
 	defer c.pendingExchangeMethodDone()
 
 	req := &pingReq{id: c.NextMessageID()}
-	mex, err := c.outbound.newExchange(ctx, c.framePool, req.messageType(), req.ID(), 1)
+	mex, err := c.outbound.newExchange(ctx, c.opts.FramePool, req.messageType(), req.ID(), 1)
 	if err != nil {
 		return c.connectionError("create ping exchange", err)
 	}
@@ -529,7 +537,7 @@ func (c *Connection) handleInitRes(frame *Frame) bool {
 		c.state = connectionActive
 		return nil
 	})
-	c.callOnActive()
+	c.connectionActive()
 
 	// We forward the peer frame, as the other side is blocked waiting on this frame.
 	// Rather than add another mechanism, we use the mex to block the sender till we get initRes.
@@ -544,9 +552,9 @@ func (c *Connection) handleInitRes(frame *Frame) bool {
 
 // sendMessage sends a standalone message (typically a control message)
 func (c *Connection) sendMessage(msg message) error {
-	frame := c.framePool.Get()
+	frame := c.opts.FramePool.Get()
 	if err := frame.write(msg); err != nil {
-		c.framePool.Release(frame)
+		c.opts.FramePool.Release(frame)
 		return err
 	}
 
@@ -570,7 +578,7 @@ func (c *Connection) recvMessage(ctx context.Context, msg message, mex *messageE
 	}
 
 	err = frame.read(msg)
-	c.framePool.Release(frame)
+	c.opts.FramePool.Release(frame)
 	return err
 }
 
@@ -586,7 +594,7 @@ func (c *Connection) NextMessageID() uint32 {
 
 // SendSystemError sends an error frame for the given system error.
 func (c *Connection) SendSystemError(id uint32, span *Span, err error) error {
-	frame := c.framePool.Get()
+	frame := c.opts.FramePool.Get()
 
 	errorSpan := Span{}
 	if span != nil {
@@ -646,7 +654,7 @@ func (c *Connection) logConnectionError(site string, err error) error {
 			errCode = se.Code()
 			logger.Error("Connection error.")
 		} else {
-			logger.Warn("Connection error.")
+			logger.Info("Connection error.")
 		}
 	}
 	return NewWrappedSystemError(errCode, err)
@@ -654,6 +662,8 @@ func (c *Connection) logConnectionError(site string, err error) error {
 
 // connectionError handles a connection level error
 func (c *Connection) connectionError(site string, err error) error {
+	c.stophealthCheck()
+
 	// Avoid racing with setting the peer info.
 	c.withStateLock(func() error {
 		c.ignoreRemotePeer = true
@@ -712,14 +722,14 @@ func (c *Connection) readState() connectionState {
 // since we cannot process new frames until the initialization is complete.
 func (c *Connection) readFrames(_ uint32) {
 	for {
-		frame := c.framePool.Get()
+		frame := c.opts.FramePool.Get()
 		if err := frame.ReadIn(c.conn); err != nil {
 			if c.closeNetworkCalled.Load() == 0 {
 				c.connectionError("read frames", err)
 			} else {
 				c.log.Debugf("Ignoring error after connection was closed: %v", err)
 			}
-			c.framePool.Release(frame)
+			c.opts.FramePool.Release(frame)
 			return
 		}
 
@@ -753,7 +763,7 @@ func (c *Connection) readFrames(_ uint32) {
 		}
 
 		if releaseFrame {
-			c.framePool.Release(frame)
+			c.opts.FramePool.Release(frame)
 		}
 	}
 }
@@ -767,7 +777,7 @@ func (c *Connection) writeFrames(_ uint32) {
 		}
 
 		err := f.WriteOut(c.conn)
-		c.framePool.Release(f)
+		c.opts.FramePool.Release(f)
 		if err != nil {
 			c.connectionError("write frames", err)
 			return
@@ -891,11 +901,62 @@ func (c *Connection) closeNetwork() {
 	// closed; no need to close the send channel (and closing the send
 	// channel would be dangerous since other goroutine might be sending)
 	c.log.Debugf("Closing underlying network connection")
-	c.closeNetworkCalled.Inc()
+	c.stophealthCheck()
 	if err := c.conn.Close(); err != nil {
 		c.log.WithFields(
 			LogField{"remotePeer", c.remotePeerInfo},
 			ErrField(err),
 		).Warn("Couldn't close connection to peer.")
 	}
+}
+
+// healthCheck will do periodic pings on the connection to check the state of the connection.
+// We accept connID on the stack so can more easily debug panics or leaked goroutines.
+func (c *Connection) healthCheck(connID uint32) {
+	interval := c.opts.HealthInterval
+	timeout := c.opts.HealthTimeout
+
+	if interval < 0 {
+		c.log.Debug("Health checks disabled by negative healthCheckPeriod")
+		return
+	}
+
+	if interval == 0 {
+		interval = time.Second
+	}
+	if timeout == 0 {
+		timeout = time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+		case <-c.healthCheckQuit:
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		if err := c.ping(ctx); err != nil {
+			// If the health check failed because the connection is closed then
+			// we don't need to do any extra logging or close the connection.
+			if err != ErrInvalidConnectionState {
+				c.connectionError("healthCheck", fmt.Errorf("healthCheck failed: %v", err))
+			}
+			return
+		}
+		cancel()
+	}
+}
+
+func (c *Connection) stophealthCheck() {
+	// Only stop health checks if they haven't been stopped yet.
+	if c.healthCheckStopped.Inc() > 1 {
+		return
+	}
+
+	c.log.Debug("Stopping health checks.")
+	close(c.healthCheckQuit)
 }

@@ -26,6 +26,7 @@ import (
 	"net"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -221,7 +222,7 @@ func TestInitReqGetsError(t *testing.T) {
 		<-connectionComplete
 	}()
 
-	logOut := &bytes.Buffer{}
+	logOut := &lockedBuffer{}
 	ch, err := NewChannel("test-svc", &ChannelOptions{Logger: NewLevelLogger(NewLogger(logOut), LogLevelWarn)})
 	require.NoError(t, err, "NewClient failed")
 	defer ch.Close()
@@ -250,4 +251,23 @@ func newListener(t *testing.T) net.Listener {
 	l, err := net.Listen("tcp", ":0")
 	require.NoError(t, err, "Listen failed")
 	return l
+}
+
+type lockedBuffer struct {
+	sync.Mutex
+	buf bytes.Buffer
+}
+
+func (lb *lockedBuffer) Write(bs []byte) (int, error) {
+	lb.Lock()
+	defer lb.Unlock()
+
+	return lb.buf.Write(bs)
+}
+
+func (lb *lockedBuffer) String() string {
+	lb.Lock()
+	defer lb.Unlock()
+
+	return lb.buf.String()
 }

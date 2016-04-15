@@ -49,7 +49,7 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	}
 
 	callReq := new(callReq)
-	initialFragment, err := parseInboundFragment(c.framePool, frame, callReq)
+	initialFragment, err := parseInboundFragment(c.opts.FramePool, frame, callReq)
 	if err != nil {
 		// TODO(mmihic): Probably want to treat this as a protocol error
 		c.log.WithFields(
@@ -69,7 +69,7 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	}
 	defer c.pendingExchangeMethodDone()
 
-	mex, err := c.inbound.newExchange(ctx, c.framePool, callReq.messageType(), frame.Header.ID, mexChannelBufferSize)
+	mex, err := c.inbound.newExchange(ctx, c.opts.FramePool, callReq.messageType(), frame.Header.ID, mexChannelBufferSize)
 	if err != nil {
 		if err == errDuplicateMex {
 			err = errInboundRequestAlreadyActive
@@ -180,7 +180,7 @@ func (c *Connection) dispatchInbound(_ uint32, _ uint32, call *InboundCall, fram
 			LogField{"remotePeer", c.remotePeerInfo},
 			ErrField(err),
 		).Error("Couldn't read method.")
-		c.framePool.Release(frame)
+		c.opts.FramePool.Release(frame)
 		return
 	}
 
