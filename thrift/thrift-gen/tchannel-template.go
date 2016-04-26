@@ -98,6 +98,8 @@ type {{ .ServerStruct }} struct {
 
 	{{ end }}
 	handler {{ .Interface }}
+
+	interceptors []thrift.Interceptor
 }
 
 // {{ .ServerConstructor }} wraps a handler for {{ .Interface }} so it can be
@@ -105,9 +107,9 @@ type {{ .ServerStruct }} struct {
 func {{ .ServerConstructor }}(handler {{ .Interface }}) thrift.TChanServer {
 	return &{{ .ServerStruct }}{
 		{{ if .HasExtends }}
-			{{ .ExtendsServicePrefix }}{{ .ExtendsService.ServerConstructor }}(handler),
+			TChanServer: {{ .ExtendsServicePrefix }}{{ .ExtendsService.ServerConstructor }}(handler),
 		{{ end }}
-		handler,
+		handler: handler,
 	}
 }
 
@@ -118,12 +120,47 @@ func (s *{{ .ServerStruct }}) Service() string {
 func (s *{{ .ServerStruct }}) Methods() []string {
 	return []string{
 		{{ range .Methods }}
-			"{{ .ThriftName }}",
+			"{{ .ThriftName }}", 
 		{{ end }}
 		{{ range .InheritedMethods }}
 			"{{ . }}",
 		{{ end }}
 	}
+}
+
+// RegisterInterceptors registers the provided interceptors with the server.
+func (s *{{ .ServerStruct }}) RegisterInterceptors(interceptors ...thrift.Interceptor) {
+	if s.interceptors == nil {
+		interceptorsLength := len(interceptors)
+		s.interceptors = make([]thrift.Interceptor, interceptorsLength, interceptorsLength)
+	}
+
+	s.interceptors = append(s.interceptors, interceptors...)
+}
+
+func (s *{{ .ServerStruct }}) callInterceptorsPre(ctx {{ contextType }}, method string, args athrift.TStruct) error {
+	if s.interceptors == nil {
+		return nil
+	}
+	var firstErr error
+	for _, interceptor := range s.interceptors {
+		err := interceptor.Pre(ctx, method, args)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (s *{{ .ServerStruct }}) callInterceptorsPost(ctx {{ contextType }}, method string, args, response athrift.TStruct, err error) error {
+	if s.interceptors == nil {
+		return err
+	}
+	transformedErr := err
+	for _, interceptor := range s.interceptors {
+		transformedErr = interceptor.Post(ctx, method, args, response, transformedErr)
+	}
+	return transformedErr
 }
 
 func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
@@ -142,46 +179,61 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 }
 
 {{ range .Methods }}
-	func (s *{{ $svc.ServerStruct }}) {{ .HandleFunc }}(ctx {{ contextType }}, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
+	func (s *{{ $svc.ServerStruct }}) {{ .HandleFunc }}(ctx {{ contextType }}, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 		var req {{ .ArgsType }}
 		var res {{ .ResultType }}
+		serviceMethod := "{{ .ThriftName }}.{{ .Name }}"
 
-		if err := req.Read(protocol); err != nil {
+		defer func () {
+			if uncaught := recover(); uncaught != nil {
+				err = thrift.PanicErr{Value: uncaught}
+			}
+			err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
+			if err != nil {
+				{{ if .HasExceptions }}
+				switch v := err.(type) {
+					{{ range .Exceptions }}
+					case {{ .ArgType }}:
+						if v == nil {
+							resp = nil
+							err = fmt.Errorf("Handler for {{ .Name }} returned non-nil error type {{ .ArgType }} but nil value")
+						}
+						res.{{ .ArgStructName }} = v
+						err = nil
+					{{ end }}
+						default:
+							resp = nil
+				}
+				{{ else }}
+				resp = nil
+				{{ end }}
+			}
+		}()
+
+		if readErr := req.Read(protocol); readErr != nil {
+			return false, nil, readErr
+		}
+
+		err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+		if err != nil {
 			return false, nil, err
 		}
 
 		{{ if .HasReturn }}
-			r, err :=
+		r, err :=
 		{{ else }}
-			err :=
+		err =
 		{{ end }}
-				s.handler.{{ .Name }}({{ .CallList "req" }})
+			s.handler.{{ .Name }}({{ .CallList "req" }})
 
-		if err != nil {
-			{{ if .HasExceptions }}
-			switch v := err.(type) {
-				{{ range .Exceptions }}
-					case {{ .ArgType }}:
-						if v == nil {
-							return false, nil, fmt.Errorf("Handler for {{ .Name }} returned non-nil error type {{ .ArgType }} but nil value")
-						}
-						res.{{ .ArgStructName }} = v
-				{{ end }}
-					default:
-						return false, nil, err
-			}
-			{{ else }}
-				return false, nil, err
-			{{ end }}
-		} else {
-    {{ if .HasReturn }}
-		  res.Success = {{ .WrapResult "r" }}
+		{{ if .HasReturn }}
+		if err == nil {
+			res.Success = {{ .WrapResult "r" }}
+		}
 		{{ end }}
-    }
 
-		return err == nil, &res, nil
+		return err == nil, &res, err
 	}
-
 {{ end }}
 
 {{ end }}

@@ -20,27 +20,73 @@
 
 package thrift
 
-import athrift "github.com/apache/thrift/lib/go/thrift"
+import (
+	"fmt"
 
-// This file defines interfaces that are used or exposed by thrift-gen generated code.
-// TChanClient is used by the generated code to make outgoing requests.
-// TChanServer is exposed by the generated code, and is called on incoming requests.
+	athrift "github.com/apache/thrift/lib/go/thrift"
+)
 
-// TChanClient abstracts calling a Thrift endpoint, and is used by the generated client code.
+// This file defines interfaces that are used or exposed by thrift-gen
+// generated code. TChanClient is used by the generated code to make
+// outgoing requests. TChanServer is exposed by the generated code,
+// and is called on incoming requests.
+
+// TChanClient abstracts calling a Thrift endpoint, and is used by the
+// generated client code.
 type TChanClient interface {
-	// Call should be passed the method to call and the request/response Thrift structs.
-	Call(ctx Context, serviceName, methodName string, req, resp athrift.TStruct) (success bool, err error)
+	// Call should be passed the method to call and the
+	// request/response Thrift structs.
+	Call(
+		ctx Context, serviceName, methodName string, req, resp athrift.TStruct,
+	) (success bool, err error)
 }
 
-// TChanServer abstracts handling of an RPC that is implemented by the generated server code.
+// TChanServer abstracts handling of an RPC that is implemented by the
+// generated server code.
 type TChanServer interface {
-	// Handle should read the request from the given reqReader, and return the response struct.
-	// The arguments returned are success, result struct, unexpected error
-	Handle(ctx Context, methodName string, protocol athrift.TProtocol) (success bool, resp athrift.TStruct, err error)
+	// Handle should read the request from the given reqReader, and
+	// return the response struct. The arguments returned are success,
+	// result struct, unexpected error
+	Handle(
+		ctx Context, methodName string, protocol athrift.TProtocol,
+	) (success bool, resp athrift.TStruct, err error)
 
 	// Service returns the service name.
 	Service() string
 
 	// Methods returns the method names handled by this server.
 	Methods() []string
+
+	// RegisterInterceptors registers the provided interceptors with the server.
+	RegisterInterceptors(...Interceptor)
+}
+
+// PanicErr is returned from Handle when a panic occurs in a handler method
+type PanicErr struct {
+	Value interface{}
+}
+
+func (e PanicErr) Error() string {
+	return fmt.Sprintf("Panic with value %v", e.Value)
+}
+
+// XXX: We may eventually want to consider making an Interceptor
+// factory type so that Interceptors can be stateful accross Pre/Post
+
+// Interceptor represents operations that should be performed before
+// and after a tchannel request.
+type Interceptor interface {
+	// Pre is called before the handler code for a request is
+	// entered. If an error is returned, the request is short circuited
+	// and the Post method of all interceptors is called with the
+	// error.
+	Pre(ctx Context, method string, args athrift.TStruct) error
+
+	// Post is called when we have a response (or error). If a panic is
+	// caught, then the panic is wrapped in thrift/PanicErr. Post may
+	// translate response/err into a different error (e.g. replace
+	// app.Err with thrift_app.Err).
+	Post(
+		ctx Context, method string, args, response athrift.TStruct, err error,
+	) error
 }

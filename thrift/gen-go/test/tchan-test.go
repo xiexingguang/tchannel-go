@@ -56,13 +56,15 @@ func (c *tchanSecondServiceClient) Echo(ctx thrift.Context, arg string) (string,
 
 type tchanSecondServiceServer struct {
 	handler TChanSecondService
+
+	interceptors []thrift.Interceptor
 }
 
 // NewTChanSecondServiceServer wraps a handler for TChanSecondService so it can be
 // registered with a thrift.Server.
 func NewTChanSecondServiceServer(handler TChanSecondService) thrift.TChanServer {
 	return &tchanSecondServiceServer{
-		handler,
+		handler: handler,
 	}
 }
 
@@ -76,6 +78,41 @@ func (s *tchanSecondServiceServer) Methods() []string {
 	}
 }
 
+// RegisterInterceptors registers the provided interceptors with the server.
+func (s *tchanSecondServiceServer) RegisterInterceptors(interceptors ...thrift.Interceptor) {
+	if s.interceptors == nil {
+		interceptorsLength := len(interceptors)
+		s.interceptors = make([]thrift.Interceptor, interceptorsLength, interceptorsLength)
+	}
+
+	s.interceptors = append(s.interceptors, interceptors...)
+}
+
+func (s *tchanSecondServiceServer) callInterceptorsPre(ctx thrift.Context, method string, args athrift.TStruct) error {
+	if s.interceptors == nil {
+		return nil
+	}
+	var firstErr error
+	for _, interceptor := range s.interceptors {
+		err := interceptor.Pre(ctx, method, args)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (s *tchanSecondServiceServer) callInterceptorsPost(ctx thrift.Context, method string, args, response athrift.TStruct, err error) error {
+	if s.interceptors == nil {
+		return err
+	}
+	transformedErr := err
+	for _, interceptor := range s.interceptors {
+		transformedErr = interceptor.Post(ctx, method, args, response, transformedErr)
+	}
+	return transformedErr
+}
+
 func (s *tchanSecondServiceServer) Handle(ctx thrift.Context, methodName string, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
 	switch methodName {
 	case "Echo":
@@ -86,24 +123,38 @@ func (s *tchanSecondServiceServer) Handle(ctx thrift.Context, methodName string,
 	}
 }
 
-func (s *tchanSecondServiceServer) handleEcho(ctx thrift.Context, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
+func (s *tchanSecondServiceServer) handleEcho(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SecondServiceEchoArgs
 	var res SecondServiceEchoResult
+	serviceMethod := "Echo.Echo"
 
-	if err := req.Read(protocol); err != nil {
+	defer func() {
+		if uncaught := recover(); uncaught != nil {
+			err = thrift.PanicErr{Value: uncaught}
+		}
+		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
+		if err != nil {
+			resp = nil
+		}
+	}()
+
+	if readErr := req.Read(protocol); readErr != nil {
+		return false, nil, readErr
+	}
+
+	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	if err != nil {
 		return false, nil, err
 	}
 
 	r, err :=
 		s.handler.Echo(ctx, req.Arg)
 
-	if err != nil {
-		return false, nil, err
-	} else {
+	if err == nil {
 		res.Success = &r
 	}
 
-	return err == nil, &res, nil
+	return err == nil, &res, err
 }
 
 type tchanSimpleServiceClient struct {
@@ -150,13 +201,15 @@ func (c *tchanSimpleServiceClient) Simple(ctx thrift.Context) error {
 
 type tchanSimpleServiceServer struct {
 	handler TChanSimpleService
+
+	interceptors []thrift.Interceptor
 }
 
 // NewTChanSimpleServiceServer wraps a handler for TChanSimpleService so it can be
 // registered with a thrift.Server.
 func NewTChanSimpleServiceServer(handler TChanSimpleService) thrift.TChanServer {
 	return &tchanSimpleServiceServer{
-		handler,
+		handler: handler,
 	}
 }
 
@@ -171,6 +224,41 @@ func (s *tchanSimpleServiceServer) Methods() []string {
 	}
 }
 
+// RegisterInterceptors registers the provided interceptors with the server.
+func (s *tchanSimpleServiceServer) RegisterInterceptors(interceptors ...thrift.Interceptor) {
+	if s.interceptors == nil {
+		interceptorsLength := len(interceptors)
+		s.interceptors = make([]thrift.Interceptor, interceptorsLength, interceptorsLength)
+	}
+
+	s.interceptors = append(s.interceptors, interceptors...)
+}
+
+func (s *tchanSimpleServiceServer) callInterceptorsPre(ctx thrift.Context, method string, args athrift.TStruct) error {
+	if s.interceptors == nil {
+		return nil
+	}
+	var firstErr error
+	for _, interceptor := range s.interceptors {
+		err := interceptor.Pre(ctx, method, args)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (s *tchanSimpleServiceServer) callInterceptorsPost(ctx thrift.Context, method string, args, response athrift.TStruct, err error) error {
+	if s.interceptors == nil {
+		return err
+	}
+	transformedErr := err
+	for _, interceptor := range s.interceptors {
+		transformedErr = interceptor.Post(ctx, method, args, response, transformedErr)
+	}
+	return transformedErr
+}
+
 func (s *tchanSimpleServiceServer) Handle(ctx thrift.Context, methodName string, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
 	switch methodName {
 	case "Call":
@@ -183,49 +271,76 @@ func (s *tchanSimpleServiceServer) Handle(ctx thrift.Context, methodName string,
 	}
 }
 
-func (s *tchanSimpleServiceServer) handleCall(ctx thrift.Context, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
+func (s *tchanSimpleServiceServer) handleCall(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SimpleServiceCallArgs
 	var res SimpleServiceCallResult
+	serviceMethod := "Call.Call"
 
-	if err := req.Read(protocol); err != nil {
+	defer func() {
+		if uncaught := recover(); uncaught != nil {
+			err = thrift.PanicErr{Value: uncaught}
+		}
+		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
+		if err != nil {
+			resp = nil
+		}
+	}()
+
+	if readErr := req.Read(protocol); readErr != nil {
+		return false, nil, readErr
+	}
+
+	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	if err != nil {
 		return false, nil, err
 	}
 
 	r, err :=
 		s.handler.Call(ctx, req.Arg)
 
-	if err != nil {
-		return false, nil, err
-	} else {
+	if err == nil {
 		res.Success = r
 	}
 
-	return err == nil, &res, nil
+	return err == nil, &res, err
 }
 
-func (s *tchanSimpleServiceServer) handleSimple(ctx thrift.Context, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
+func (s *tchanSimpleServiceServer) handleSimple(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SimpleServiceSimpleArgs
 	var res SimpleServiceSimpleResult
+	serviceMethod := "Simple.Simple"
 
-	if err := req.Read(protocol); err != nil {
+	defer func() {
+		if uncaught := recover(); uncaught != nil {
+			err = thrift.PanicErr{Value: uncaught}
+		}
+		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
+		if err != nil {
+			switch v := err.(type) {
+			case *SimpleErr:
+				if v == nil {
+					resp = nil
+					err = fmt.Errorf("Handler for simpleErr returned non-nil error type *SimpleErr but nil value")
+				}
+				res.SimpleErr = v
+				err = nil
+			default:
+				resp = nil
+			}
+		}
+	}()
+
+	if readErr := req.Read(protocol); readErr != nil {
+		return false, nil, readErr
+	}
+
+	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	if err != nil {
 		return false, nil, err
 	}
 
-	err :=
+	err =
 		s.handler.Simple(ctx)
 
-	if err != nil {
-		switch v := err.(type) {
-		case *SimpleErr:
-			if v == nil {
-				return false, nil, fmt.Errorf("Handler for simpleErr returned non-nil error type *SimpleErr but nil value")
-			}
-			res.SimpleErr = v
-		default:
-			return false, nil, err
-		}
-	} else {
-	}
-
-	return err == nil, &res, nil
+	return err == nil, &res, err
 }
