@@ -132,7 +132,7 @@ func (s *{{ .ServerStruct }}) Methods() []string {
 func (s *{{ .ServerStruct }}) RegisterInterceptors(interceptors ...thrift.Interceptor) {
 	if s.interceptors == nil {
 		interceptorsLength := len(interceptors)
-		s.interceptors = make([]thrift.Interceptor, interceptorsLength, interceptorsLength)
+		s.interceptors = make([]thrift.Interceptor, 0, interceptorsLength)
 	}
 
 	s.interceptors = append(s.interceptors, interceptors...)
