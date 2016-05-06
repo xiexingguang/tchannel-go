@@ -38,11 +38,12 @@ type handler struct {
 // Server handles incoming TChannel calls and forwards them to the matching TChanServer.
 type Server struct {
 	sync.RWMutex
-	ch          tchannel.Registrar
-	log         tchannel.Logger
-	handlers    map[string]handler
-	metaHandler *metaHandler
-	ctxFn       func(ctx context.Context, method string, headers map[string]string) Context
+	ch           tchannel.Registrar
+	log          tchannel.Logger
+	handlers     map[string]handler
+	metaHandler  *metaHandler
+	interceptors []Interceptor
+	ctxFn        func(ctx context.Context, method string, headers map[string]string) Context
 }
 
 // NewServer returns a server that can serve thrift services over TChannel.
@@ -79,11 +80,39 @@ func (s *Server) Register(svr TChanServer, opts ...RegisterOption) {
 	for _, m := range svr.Methods() {
 		s.ch.Register(s, service+"::"+m)
 	}
+	svr.RegisterInterceptorRunner(s)
 }
 
 // RegisterHealthHandler uses the user-specified function f for the Health endpoint.
 func (s *Server) RegisterHealthHandler(f HealthFunc) {
 	s.metaHandler.setHandler(f)
+}
+
+// RegisterInterceptor TODO method doc
+func (s *Server) RegisterInterceptor(interceptor Interceptor) {
+	/// TODO
+	s.interceptors = append(s.interceptors, interceptor)
+}
+
+// RunPre TODO comment
+func (s *Server) RunPre(ctx Context, method string, args thrift.TStruct) (InterceptorPostRunner, error) {
+	var retErr error
+	postRun := make([]Interceptor, 0, len(s.interceptors))
+	for _, interceptor := range s.interceptors {
+		postRun = append(postRun, interceptor)
+		if retErr = interceptor.Pre(ctx, method, args); retErr != nil {
+			break
+		}
+	}
+
+	postFn := func(response thrift.TStruct, err error) error {
+		for _, interceptor := range postRun {
+			err = interceptor.Post(ctx, method, args, response, err)
+		}
+		return err
+	}
+
+	return postFn, retErr
 }
 
 // SetContextFn sets the function used to convert a context.Context to a thrift.Context.

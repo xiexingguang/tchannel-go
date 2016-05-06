@@ -57,7 +57,7 @@ func (c *tchanSecondServiceClient) Echo(ctx thrift.Context, arg string) (string,
 type tchanSecondServiceServer struct {
 	handler TChanSecondService
 
-	interceptors []thrift.Interceptor
+	interceptorRunner thrift.InterceptorRunner
 }
 
 // NewTChanSecondServiceServer wraps a handler for TChanSecondService so it can be
@@ -147,9 +147,18 @@ func (s *tchanSecondServiceServer) handleEcho(ctx thrift.Context, protocol athri
 		return false, nil, err
 	}
 
+	next, err := s.interceptorRunner(ctx, serviceMethod, &req)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := next(resp, err); err != nil {
+			// Change the type
+		}
+	}()
+
 	r, err :=
 		s.handler.Echo(ctx, req.Arg)
-
 	if err == nil {
 		res.Success = &r
 	}
@@ -202,7 +211,7 @@ func (c *tchanSimpleServiceClient) Simple(ctx thrift.Context) error {
 type tchanSimpleServiceServer struct {
 	handler TChanSimpleService
 
-	interceptors []thrift.Interceptor
+	interceptorRunner thrift.InterceptorRunner
 }
 
 // NewTChanSimpleServiceServer wraps a handler for TChanSimpleService so it can be
@@ -302,6 +311,37 @@ func (s *tchanSimpleServiceServer) handleCall(ctx thrift.Context, protocol athri
 		res.Success = r
 	}
 
+	return err == nil, &res, err
+}
+
+func (s *tchanSimpleServiceServer) handleSimpleWrap(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+	const serviceMethod = "Simple::Simple"
+	var req SimpleServiceSimpleArgs
+	var res SimpleServiceSimpleResult
+
+	if readErr := req.Read(protocol); readErr != nil {
+		return false, nil, readErr
+	}
+
+	postRun, err := s.interceptorRunner.RunPre(ctx)
+	defer func() {
+		err = postRun(res, err)
+		if err != nil {
+			switch v := err.(type) {
+			case *SimpleErr:
+				if v == nil {
+					resp = nil
+					err = fmt.Errorf("Handler for simpleErr returned non-nil error type *SimpleErr but nil value")
+				}
+				res.SimpleErr = v
+				err = nil
+			default:
+				resp = nil
+			}
+		}
+	}()
+
+	err = s.handler.Simple(ctx)
 	return err == nil, &res, err
 }
 

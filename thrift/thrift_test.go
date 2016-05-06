@@ -310,6 +310,38 @@ func TestThriftContextFn(t *testing.T) {
 	})
 }
 
+type postAlwaysErr struct{}
+
+func (alwaysErrInterceptor) Pre() {
+
+}
+
+func TestThriftInterceptors(t *testing.T) {
+	tests := []struct {
+		handlerError error
+		interceptors []Interceptor
+		expected     error
+	}{
+		{
+			handlerError: nil,
+			interceptor:  []Interceptor{alwaysErr},
+			expected:     errTest,
+		},
+	}
+
+	for _, tt := range tests {
+		withSetup(t, func(ctx Context, args testArgs) {
+			for _, interceptor := range interceptors {
+				args.server.RegisterInterceptor(interceptor)
+			}
+			args.s1.On("Simple", ctxArg()).Return(tt.handlerError)
+
+			err := args.c2.Simple(ctx, "test")
+			assert.Equal(t, tt.wantErr, err, "Error mismatch")
+		})
+	}
+}
+
 func withSetup(t *testing.T, f func(ctx Context, args testArgs)) {
 	args := testArgs{
 		s1: new(mocks.TChanSimpleService),
