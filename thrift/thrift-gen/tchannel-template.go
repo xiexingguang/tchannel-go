@@ -99,7 +99,7 @@ type {{ .ServerStruct }} struct {
 	{{ end }}
 	handler {{ .Interface }}
 
-	interceptors []thrift.Interceptor
+	interceptorRunner thrift.InterceptorRunner
 }
 
 // {{ .ServerConstructor }} wraps a handler for {{ .Interface }} so it can be
@@ -129,38 +129,8 @@ func (s *{{ .ServerStruct }}) Methods() []string {
 }
 
 // RegisterInterceptors registers the provided interceptors with the server.
-func (s *{{ .ServerStruct }}) RegisterInterceptors(interceptors ...thrift.Interceptor) {
-	if s.interceptors == nil {
-		interceptorsLength := len(interceptors)
-		s.interceptors = make([]thrift.Interceptor, 0, interceptorsLength)
-	}
-
-	s.interceptors = append(s.interceptors, interceptors...)
-}
-
-func (s *{{ .ServerStruct }}) callInterceptorsPre(ctx {{ contextType }}, method string, args athrift.TStruct) error {
-	if s.interceptors == nil {
-		return nil
-	}
-	var firstErr error
-	for _, interceptor := range s.interceptors {
-		err := interceptor.Pre(ctx, method, args)
-		if err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-func (s *{{ .ServerStruct }}) callInterceptorsPost(ctx {{ contextType }}, method string, args, response athrift.TStruct, err error) error {
-	if s.interceptors == nil {
-		return err
-	}
-	transformedErr := err
-	for _, interceptor := range s.interceptors {
-		transformedErr = interceptor.Post(ctx, method, args, response, transformedErr)
-	}
-	return transformedErr
+func (s *{{ .ServerStruct }}) RegisterInterceptorRunner(runner thrift.InterceptorRunner) {
+	s.interceptorRunner = runner
 }
 
 func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
@@ -182,39 +152,35 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 	func (s *{{ $svc.ServerStruct }}) {{ .HandleFunc }}(ctx {{ contextType }}, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 		var req {{ .ArgsType }}
 		var res {{ .ResultType }}
-		serviceMethod := "{{ .ThriftName }}.{{ .Name }}"
-
-		defer func () {
-			if uncaught := recover(); uncaught != nil {
-				err = thrift.PanicErr{Value: uncaught}
-			}
-			err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
-			if err != nil {
-				{{ if .HasExceptions }}
-				switch v := err.(type) {
-					{{ range .Exceptions }}
-					case {{ .ArgType }}:
-						if v == nil {
-							resp = nil
-							err = fmt.Errorf("Handler for {{ .Name }} returned non-nil error type {{ .ArgType }} but nil value")
-						}
-						res.{{ .ArgStructName }} = v
-						err = nil
-					{{ end }}
-						default:
-							resp = nil
-				}
-				{{ else }}
-				resp = nil
-				{{ end }}
-			}
-		}()
+		serviceMethod := "{{ .ThriftName }}::{{ .Name }}"
 
 		if readErr := req.Read(protocol); readErr != nil {
 			return false, nil, readErr
 		}
 
-		err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+		postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
+
+		defer func () {
+			err = postRun(resp, err)
+			if err != nil {
+				resp = nil
+				{{ if .HasExceptions }}
+				switch v := err.(type) {
+					{{ range .Exceptions }}
+					case {{ .ArgType }}:
+						if v == nil {
+							err = fmt.Errorf("Handler for {{ .Name }} returned non-nil error type {{ .ArgType }} but nil value")
+						} else {
+							res.{{ .ArgStructName }} = v
+							err = nil
+							resp = &res
+						}
+					{{ end }}
+				}
+				{{ end }}
+			}
+		}()
+
 		if err != nil {
 			return false, nil, err
 		}

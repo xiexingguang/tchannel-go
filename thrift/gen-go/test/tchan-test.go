@@ -21,6 +21,7 @@ type TChanSecondService interface {
 type TChanSimpleService interface {
 	Call(ctx thrift.Context, arg *Data) (*Data, error)
 	Simple(ctx thrift.Context) error
+	Throws(ctx thrift.Context, arg string) (string, error)
 }
 
 // Implementation of a client and service handler.
@@ -79,38 +80,8 @@ func (s *tchanSecondServiceServer) Methods() []string {
 }
 
 // RegisterInterceptors registers the provided interceptors with the server.
-func (s *tchanSecondServiceServer) RegisterInterceptors(interceptors ...thrift.Interceptor) {
-	if s.interceptors == nil {
-		interceptorsLength := len(interceptors)
-		s.interceptors = make([]thrift.Interceptor, interceptorsLength, interceptorsLength)
-	}
-
-	s.interceptors = append(s.interceptors, interceptors...)
-}
-
-func (s *tchanSecondServiceServer) callInterceptorsPre(ctx thrift.Context, method string, args athrift.TStruct) error {
-	if s.interceptors == nil {
-		return nil
-	}
-	var firstErr error
-	for _, interceptor := range s.interceptors {
-		err := interceptor.Pre(ctx, method, args)
-		if err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-func (s *tchanSecondServiceServer) callInterceptorsPost(ctx thrift.Context, method string, args, response athrift.TStruct, err error) error {
-	if s.interceptors == nil {
-		return err
-	}
-	transformedErr := err
-	for _, interceptor := range s.interceptors {
-		transformedErr = interceptor.Post(ctx, method, args, response, transformedErr)
-	}
-	return transformedErr
+func (s *tchanSecondServiceServer) RegisterInterceptorRunner(runner thrift.InterceptorRunner) {
+	s.interceptorRunner = runner
 }
 
 func (s *tchanSecondServiceServer) Handle(ctx thrift.Context, methodName string, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
@@ -126,39 +97,28 @@ func (s *tchanSecondServiceServer) Handle(ctx thrift.Context, methodName string,
 func (s *tchanSecondServiceServer) handleEcho(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SecondServiceEchoArgs
 	var res SecondServiceEchoResult
-	serviceMethod := "Echo.Echo"
-
-	defer func() {
-		if uncaught := recover(); uncaught != nil {
-			err = thrift.PanicErr{Value: uncaught}
-		}
-		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
-		if err != nil {
-			resp = nil
-		}
-	}()
+	serviceMethod := "Echo::Echo"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
 	}
 
-	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
+
+	defer func() {
+		err = postRun(resp, err)
+		if err != nil {
+			resp = nil
+		}
+	}()
+
 	if err != nil {
 		return false, nil, err
 	}
 
-	next, err := s.interceptorRunner(ctx, serviceMethod, &req)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := next(resp, err); err != nil {
-			// Change the type
-		}
-	}()
-
 	r, err :=
 		s.handler.Echo(ctx, req.Arg)
+
 	if err == nil {
 		res.Success = &r
 	}
@@ -208,6 +168,21 @@ func (c *tchanSimpleServiceClient) Simple(ctx thrift.Context) error {
 	return err
 }
 
+func (c *tchanSimpleServiceClient) Throws(ctx thrift.Context, arg string) (string, error) {
+	var resp SimpleServiceThrowsResult
+	args := SimpleServiceThrowsArgs{
+		Arg: arg,
+	}
+	success, err := c.client.Call(ctx, c.thriftService, "Throws", &args, &resp)
+	if err == nil && !success {
+		if e := resp.SimpleErr; e != nil {
+			err = e
+		}
+	}
+
+	return resp.GetSuccess(), err
+}
+
 type tchanSimpleServiceServer struct {
 	handler TChanSimpleService
 
@@ -230,42 +205,13 @@ func (s *tchanSimpleServiceServer) Methods() []string {
 	return []string{
 		"Call",
 		"Simple",
+		"Throws",
 	}
 }
 
 // RegisterInterceptors registers the provided interceptors with the server.
-func (s *tchanSimpleServiceServer) RegisterInterceptors(interceptors ...thrift.Interceptor) {
-	if s.interceptors == nil {
-		interceptorsLength := len(interceptors)
-		s.interceptors = make([]thrift.Interceptor, interceptorsLength, interceptorsLength)
-	}
-
-	s.interceptors = append(s.interceptors, interceptors...)
-}
-
-func (s *tchanSimpleServiceServer) callInterceptorsPre(ctx thrift.Context, method string, args athrift.TStruct) error {
-	if s.interceptors == nil {
-		return nil
-	}
-	var firstErr error
-	for _, interceptor := range s.interceptors {
-		err := interceptor.Pre(ctx, method, args)
-		if err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-func (s *tchanSimpleServiceServer) callInterceptorsPost(ctx thrift.Context, method string, args, response athrift.TStruct, err error) error {
-	if s.interceptors == nil {
-		return err
-	}
-	transformedErr := err
-	for _, interceptor := range s.interceptors {
-		transformedErr = interceptor.Post(ctx, method, args, response, transformedErr)
-	}
-	return transformedErr
+func (s *tchanSimpleServiceServer) RegisterInterceptorRunner(runner thrift.InterceptorRunner) {
+	s.interceptorRunner = runner
 }
 
 func (s *tchanSimpleServiceServer) Handle(ctx thrift.Context, methodName string, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
@@ -274,6 +220,8 @@ func (s *tchanSimpleServiceServer) Handle(ctx thrift.Context, methodName string,
 		return s.handleCall(ctx, protocol)
 	case "Simple":
 		return s.handleSimple(ctx, protocol)
+	case "Throws":
+		return s.handleThrows(ctx, protocol)
 
 	default:
 		return false, nil, fmt.Errorf("method %v not found in service %v", methodName, s.Service())
@@ -283,23 +231,21 @@ func (s *tchanSimpleServiceServer) Handle(ctx thrift.Context, methodName string,
 func (s *tchanSimpleServiceServer) handleCall(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SimpleServiceCallArgs
 	var res SimpleServiceCallResult
-	serviceMethod := "Call.Call"
-
-	defer func() {
-		if uncaught := recover(); uncaught != nil {
-			err = thrift.PanicErr{Value: uncaught}
-		}
-		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
-		if err != nil {
-			resp = nil
-		}
-	}()
+	serviceMethod := "Call::Call"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
 	}
 
-	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
+
+	defer func() {
+		err = postRun(resp, err)
+		if err != nil {
+			resp = nil
+		}
+	}()
+
 	if err != nil {
 		return false, nil, err
 	}
@@ -314,73 +260,82 @@ func (s *tchanSimpleServiceServer) handleCall(ctx thrift.Context, protocol athri
 	return err == nil, &res, err
 }
 
-func (s *tchanSimpleServiceServer) handleSimpleWrap(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
-	const serviceMethod = "Simple::Simple"
-	var req SimpleServiceSimpleArgs
-	var res SimpleServiceSimpleResult
-
-	if readErr := req.Read(protocol); readErr != nil {
-		return false, nil, readErr
-	}
-
-	postRun, err := s.interceptorRunner.RunPre(ctx)
-	defer func() {
-		err = postRun(res, err)
-		if err != nil {
-			switch v := err.(type) {
-			case *SimpleErr:
-				if v == nil {
-					resp = nil
-					err = fmt.Errorf("Handler for simpleErr returned non-nil error type *SimpleErr but nil value")
-				}
-				res.SimpleErr = v
-				err = nil
-			default:
-				resp = nil
-			}
-		}
-	}()
-
-	err = s.handler.Simple(ctx)
-	return err == nil, &res, err
-}
-
 func (s *tchanSimpleServiceServer) handleSimple(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SimpleServiceSimpleArgs
 	var res SimpleServiceSimpleResult
-	serviceMethod := "Simple.Simple"
-
-	defer func() {
-		if uncaught := recover(); uncaught != nil {
-			err = thrift.PanicErr{Value: uncaught}
-		}
-		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
-		if err != nil {
-			switch v := err.(type) {
-			case *SimpleErr:
-				if v == nil {
-					resp = nil
-					err = fmt.Errorf("Handler for simpleErr returned non-nil error type *SimpleErr but nil value")
-				}
-				res.SimpleErr = v
-				err = nil
-			default:
-				resp = nil
-			}
-		}
-	}()
+	serviceMethod := "Simple::Simple"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
 	}
 
-	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
+
+	defer func() {
+		err = postRun(resp, err)
+		if err != nil {
+			resp = nil
+			switch v := err.(type) {
+			case *SimpleErr:
+				if v == nil {
+					err = fmt.Errorf("Handler for simpleErr returned non-nil error type *SimpleErr but nil value")
+				} else {
+					res.SimpleErr = v
+					err = nil
+					resp = &res
+				}
+			}
+		}
+	}()
+
 	if err != nil {
 		return false, nil, err
 	}
 
 	err =
 		s.handler.Simple(ctx)
+
+	return err == nil, &res, err
+}
+
+func (s *tchanSimpleServiceServer) handleThrows(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+	var req SimpleServiceThrowsArgs
+	var res SimpleServiceThrowsResult
+	serviceMethod := "Throws::Throws"
+
+	if readErr := req.Read(protocol); readErr != nil {
+		return false, nil, readErr
+	}
+
+	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
+
+	defer func() {
+		err = postRun(resp, err)
+		if err != nil {
+			resp = nil
+			switch v := err.(type) {
+			case *SimpleErr:
+				if v == nil {
+					err = fmt.Errorf("Handler for simpleErr returned non-nil error type *SimpleErr but nil value")
+				} else {
+					res.SimpleErr = v
+					err = nil
+					resp = &res
+				}
+			}
+		}
+	}()
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	r, err :=
+		s.handler.Throws(ctx, req.Arg)
+
+	if err == nil {
+		res.Success = &r
+	}
 
 	return err == nil, &res, err
 }

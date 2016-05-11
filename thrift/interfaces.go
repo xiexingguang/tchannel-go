@@ -20,11 +20,7 @@
 
 package thrift
 
-import (
-	"fmt"
-
-	athrift "github.com/apache/thrift/lib/go/thrift"
-)
+import athrift "github.com/apache/thrift/lib/go/thrift"
 
 // This file defines interfaces that are used or exposed by thrift-gen
 // generated code. TChanClient is used by the generated code to make
@@ -56,32 +52,30 @@ type TChanServer interface {
 
 	// Methods returns the method names handled by this server.
 	Methods() []string
+}
 
+// InterceptorRunnerRegistrar is a target for the registration of an
+// interceptor runner.
+type InterceptorRunnerRegistrar interface {
 	// RegisterInterceptorRunner registers the interceptor runner.
-	RegisterInterceptorRunner(...Interceptor)
+	RegisterInterceptorRunner(InterceptorRunner)
 }
 
-// PanicErr is returned from Handle when a panic occurs in a handler method
-type PanicErr struct {
-	Value interface{}
-}
-
-func (e PanicErr) Error() string {
-	return fmt.Sprintf("Panic with value %v", e.Value)
-}
-
+// InterceptorPostRunner is a callback that should be exectuted after
+// a tchannel request has been handled.
 type InterceptorPostRunner func(response athrift.TStruct, err error) error
 
-// InterceptorRunner is implemented by thrift.Server
+// InterceptorRunner handles the excecution of a collection of
+// Interceptor Pre functions and returns a Interceptor post runner
+// that handles the execution of the Post methods of those same
+// Interceptors.
 type InterceptorRunner interface {
 	// RunPre will run the pre interceptors in order, and return
 	// a function for the post interceptors to run.
 	RunPre(ctx Context, method string, args athrift.TStruct) (
-		runPost InterceptorPostRunner, err error)
+		runPost InterceptorPostRunner, err error,
+	)
 }
-
-// XXX: We may eventually want to consider making an Interceptor
-// factory type so that Interceptors can be stateful accross Pre/Post
 
 // Interceptor represents operations that should be performed before
 // and after a tchannel request.

@@ -88,25 +88,28 @@ func (s *Server) RegisterHealthHandler(f HealthFunc) {
 	s.metaHandler.setHandler(f)
 }
 
-// RegisterInterceptor TODO method doc
+// RegisterInterceptor adds an interceptor to the server that will be
+// executed before and after each request
 func (s *Server) RegisterInterceptor(interceptor Interceptor) {
-	/// TODO
 	s.interceptors = append(s.interceptors, interceptor)
 }
 
-// RunPre TODO comment
+// RunPre executes the pre function intercepters registered on the
+// server until one of them fails, and produces a
+// InterceptorPostRunner that will excute the Post methods of all
+// inteceptors whose Pre methods were executed.
 func (s *Server) RunPre(ctx Context, method string, args thrift.TStruct) (InterceptorPostRunner, error) {
 	var retErr error
-	postRun := make([]Interceptor, 0, len(s.interceptors))
+	postInterceptors := make([]Interceptor, 0, len(s.interceptors))
 	for _, interceptor := range s.interceptors {
-		postRun = append(postRun, interceptor)
+		postInterceptors = append(postInterceptors, interceptor)
 		if retErr = interceptor.Pre(ctx, method, args); retErr != nil {
 			break
 		}
 	}
 
 	postFn := func(response thrift.TStruct, err error) error {
-		for _, interceptor := range postRun {
+		for _, interceptor := range postInterceptors {
 			err = interceptor.Post(ctx, method, args, response, err)
 		}
 		return err

@@ -77,7 +77,7 @@ func (c *tchanTCollectorClient) SubmitBatch(ctx thrift.Context, spans []*Span) (
 type tchanTCollectorServer struct {
 	handler TChanTCollector
 
-	interceptors []thrift.Interceptor
+	interceptorRunner thrift.InterceptorRunner
 }
 
 // NewTChanTCollectorServer wraps a handler for TChanTCollector so it can be
@@ -101,38 +101,8 @@ func (s *tchanTCollectorServer) Methods() []string {
 }
 
 // RegisterInterceptors registers the provided interceptors with the server.
-func (s *tchanTCollectorServer) RegisterInterceptors(interceptors ...thrift.Interceptor) {
-	if s.interceptors == nil {
-		interceptorsLength := len(interceptors)
-		s.interceptors = make([]thrift.Interceptor, interceptorsLength, interceptorsLength)
-	}
-
-	s.interceptors = append(s.interceptors, interceptors...)
-}
-
-func (s *tchanTCollectorServer) callInterceptorsPre(ctx thrift.Context, method string, args athrift.TStruct) error {
-	if s.interceptors == nil {
-		return nil
-	}
-	var firstErr error
-	for _, interceptor := range s.interceptors {
-		err := interceptor.Pre(ctx, method, args)
-		if err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-func (s *tchanTCollectorServer) callInterceptorsPost(ctx thrift.Context, method string, args, response athrift.TStruct, err error) error {
-	if s.interceptors == nil {
-		return err
-	}
-	transformedErr := err
-	for _, interceptor := range s.interceptors {
-		transformedErr = interceptor.Post(ctx, method, args, response, transformedErr)
-	}
-	return transformedErr
+func (s *tchanTCollectorServer) RegisterInterceptorRunner(runner thrift.InterceptorRunner) {
+	s.interceptorRunner = runner
 }
 
 func (s *tchanTCollectorServer) Handle(ctx thrift.Context, methodName string, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
@@ -152,23 +122,21 @@ func (s *tchanTCollectorServer) Handle(ctx thrift.Context, methodName string, pr
 func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req TCollectorGetSamplingStrategyArgs
 	var res TCollectorGetSamplingStrategyResult
-	serviceMethod := "getSamplingStrategy.GetSamplingStrategy"
-
-	defer func() {
-		if uncaught := recover(); uncaught != nil {
-			err = thrift.PanicErr{Value: uncaught}
-		}
-		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
-		if err != nil {
-			resp = nil
-		}
-	}()
+	serviceMethod := "getSamplingStrategy::GetSamplingStrategy"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
 	}
 
-	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
+
+	defer func() {
+		err = postRun(resp, err)
+		if err != nil {
+			resp = nil
+		}
+	}()
+
 	if err != nil {
 		return false, nil, err
 	}
@@ -186,23 +154,21 @@ func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, pr
 func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req TCollectorSubmitArgs
 	var res TCollectorSubmitResult
-	serviceMethod := "submit.Submit"
-
-	defer func() {
-		if uncaught := recover(); uncaught != nil {
-			err = thrift.PanicErr{Value: uncaught}
-		}
-		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
-		if err != nil {
-			resp = nil
-		}
-	}()
+	serviceMethod := "submit::Submit"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
 	}
 
-	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
+
+	defer func() {
+		err = postRun(resp, err)
+		if err != nil {
+			resp = nil
+		}
+	}()
+
 	if err != nil {
 		return false, nil, err
 	}
@@ -220,23 +186,21 @@ func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrif
 func (s *tchanTCollectorServer) handleSubmitBatch(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req TCollectorSubmitBatchArgs
 	var res TCollectorSubmitBatchResult
-	serviceMethod := "submitBatch.SubmitBatch"
-
-	defer func() {
-		if uncaught := recover(); uncaught != nil {
-			err = thrift.PanicErr{Value: uncaught}
-		}
-		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
-		if err != nil {
-			resp = nil
-		}
-	}()
+	serviceMethod := "submitBatch::SubmitBatch"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
 	}
 
-	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
+
+	defer func() {
+		err = postRun(resp, err)
+		if err != nil {
+			resp = nil
+		}
+	}()
+
 	if err != nil {
 		return false, nil, err
 	}

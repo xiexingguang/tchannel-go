@@ -150,6 +150,10 @@ thrift_gen:
 	$(BUILD)/thrift-gen --generateThrift --inputFile hyperbahn/hyperbahn.thrift --outputDir hyperbahn/gen-go
 	rm -rf trace/thrift/gen-go/tcollector && $(BUILD)/thrift-gen --generateThrift --inputFile trace/tcollector.thrift --outputDir trace/thrift/gen-go/
 
+test_mocks:
+	GOPATH=$(OLDGOPATH) mockery -name TChanSimpleService -recursive -dir ./thrift/gen-go/test/
+	GOPATH=$(OLDGOPATH) mockery -name TChanSecondService -recursive -dir ./thrift/gen-go/test/
+
 release_thrift_gen: clean setup
 	GOOS=linux GOARCH=amd64 godep go build -o $(THRIFT_GEN_RELEASE_LINUX)/thrift-gen ./thrift/thrift-gen
 	GOOS=darwin GOARCH=amd64 godep go build -o $(THRIFT_GEN_RELEASE_DARWIN)/thrift-gen ./thrift/thrift-gen

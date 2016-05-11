@@ -90,8 +90,8 @@ func TestRetryRequest(t *testing.T) {
 		count := 0
 		args.s1.On("Simple", ctxArg()).Return(tchannel.ErrServerBusy).
 			Run(func(args mock.Arguments) {
-				count++
-			})
+			count++
+		})
 		require.Error(t, args.c1.Simple(ctx), "Simple expected to fail")
 		assert.Equal(t, 5, count, "Expected Simple to be retried 5 times")
 	})
@@ -226,9 +226,11 @@ func TestClientHostPort(t *testing.T) {
 	assert.Equal(t, "call1", res)
 
 	// When we call using a client that specifies host:port, it should call that server.
-	c2 := gen.NewTChanSecondServiceClient(NewClient(s1ch, s1ch.PeerInfo().ServiceName, &ClientOptions{
-		HostPort: s1ch.PeerInfo().HostPort,
-	}))
+	c2 := gen.NewTChanSecondServiceClient(
+		NewClient(s1ch, s1ch.PeerInfo().ServiceName, &ClientOptions{
+			HostPort: s1ch.PeerInfo().HostPort,
+		}),
+	)
 	mock1.On("Echo", ctxArg(), "call2").Return("call2", nil)
 	res, err = c2.Echo(ctx, "call2")
 	assert.NoError(t, err, "call2 failed")
@@ -297,7 +299,9 @@ func TestThriftTimeout(t *testing.T) {
 
 func TestThriftContextFn(t *testing.T) {
 	withSetup(t, func(ctx Context, args testArgs) {
-		args.server.SetContextFn(func(ctx context.Context, method string, headers map[string]string) Context {
+		args.server.SetContextFn(func(
+			ctx context.Context, method string, headers map[string]string,
+		) Context {
 			return WithHeaders(ctx, map[string]string{"custom": "headers"})
 		})
 
@@ -308,12 +312,6 @@ func TestThriftContextFn(t *testing.T) {
 		_, err := args.c2.Echo(ctx, "test")
 		assert.NoError(t, err, "Echo failed")
 	})
-}
-
-type postAlwaysErr struct{}
-
-func (alwaysErrInterceptor) Pre() {
-
 }
 
 func TestThriftInterceptors(t *testing.T) {
@@ -340,6 +338,40 @@ func TestThriftInterceptors(t *testing.T) {
 			assert.Equal(t, tt.wantErr, err, "Error mismatch")
 		})
 	}
+}
+
+type postInterceptor struct {
+	post func(
+		ctx Context, method string, args, response athrift.TStruct, err error,
+	) error
+}
+
+func (h postInterceptor) Pre(ctx Context, method string, args athrift.TStruct) error {
+	return nil
+}
+
+func (h postInterceptor) Post(
+	ctx Context, method string, args, response athrift.TStruct, err error,
+) error {
+	return h.post(ctx, method, args, response, err)
+}
+
+func TestHandleUncaughtInterceptor(t *testing.T) {
+	withSetup(t, func(ctx Context, args testArgs) {
+		args.server.RegisterInterceptor(
+			postInterceptor{
+				post: func(
+					ctx Context, method string, args, response athrift.TStruct, err error,
+				) error {
+					if v := recover(); v != nil {
+						return gen.NewSimpleErr()
+					}
+					return err
+				},
+			},
+		)
+		args.c1.Throws("test")
+	})
 }
 
 func withSetup(t *testing.T, f func(ctx Context, args testArgs)) {

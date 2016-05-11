@@ -57,7 +57,7 @@ func (c *tchanHyperbahnClient) Discover(ctx thrift.Context, query *DiscoveryQuer
 type tchanHyperbahnServer struct {
 	handler TChanHyperbahn
 
-	interceptors []thrift.Interceptor
+	interceptorRunner thrift.InterceptorRunner
 }
 
 // NewTChanHyperbahnServer wraps a handler for TChanHyperbahn so it can be
@@ -79,38 +79,8 @@ func (s *tchanHyperbahnServer) Methods() []string {
 }
 
 // RegisterInterceptors registers the provided interceptors with the server.
-func (s *tchanHyperbahnServer) RegisterInterceptors(interceptors ...thrift.Interceptor) {
-	if s.interceptors == nil {
-		interceptorsLength := len(interceptors)
-		s.interceptors = make([]thrift.Interceptor, interceptorsLength, interceptorsLength)
-	}
-
-	s.interceptors = append(s.interceptors, interceptors...)
-}
-
-func (s *tchanHyperbahnServer) callInterceptorsPre(ctx thrift.Context, method string, args athrift.TStruct) error {
-	if s.interceptors == nil {
-		return nil
-	}
-	var firstErr error
-	for _, interceptor := range s.interceptors {
-		err := interceptor.Pre(ctx, method, args)
-		if err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-func (s *tchanHyperbahnServer) callInterceptorsPost(ctx thrift.Context, method string, args, response athrift.TStruct, err error) error {
-	if s.interceptors == nil {
-		return err
-	}
-	transformedErr := err
-	for _, interceptor := range s.interceptors {
-		transformedErr = interceptor.Post(ctx, method, args, response, transformedErr)
-	}
-	return transformedErr
+func (s *tchanHyperbahnServer) RegisterInterceptorRunner(runner thrift.InterceptorRunner) {
+	s.interceptorRunner = runner
 }
 
 func (s *tchanHyperbahnServer) Handle(ctx thrift.Context, methodName string, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
@@ -126,40 +96,39 @@ func (s *tchanHyperbahnServer) Handle(ctx thrift.Context, methodName string, pro
 func (s *tchanHyperbahnServer) handleDiscover(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req HyperbahnDiscoverArgs
 	var res HyperbahnDiscoverResult
-	serviceMethod := "discover.Discover"
-
-	defer func() {
-		if uncaught := recover(); uncaught != nil {
-			err = thrift.PanicErr{Value: uncaught}
-		}
-		err = s.callInterceptorsPost(ctx, serviceMethod, &req, resp, err)
-		if err != nil {
-			switch v := err.(type) {
-			case *NoPeersAvailable:
-				if v == nil {
-					resp = nil
-					err = fmt.Errorf("Handler for noPeersAvailable returned non-nil error type *NoPeersAvailable but nil value")
-				}
-				res.NoPeersAvailable = v
-				err = nil
-			case *InvalidServiceName:
-				if v == nil {
-					resp = nil
-					err = fmt.Errorf("Handler for invalidServiceName returned non-nil error type *InvalidServiceName but nil value")
-				}
-				res.InvalidServiceName = v
-				err = nil
-			default:
-				resp = nil
-			}
-		}
-	}()
+	serviceMethod := "discover::Discover"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
 	}
 
-	err = s.callInterceptorsPre(ctx, serviceMethod, &req)
+	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
+
+	defer func() {
+		err = postRun(resp, err)
+		if err != nil {
+			resp = nil
+			switch v := err.(type) {
+			case *NoPeersAvailable:
+				if v == nil {
+					err = fmt.Errorf("Handler for noPeersAvailable returned non-nil error type *NoPeersAvailable but nil value")
+				} else {
+					res.NoPeersAvailable = v
+					err = nil
+					resp = &res
+				}
+			case *InvalidServiceName:
+				if v == nil {
+					err = fmt.Errorf("Handler for invalidServiceName returned non-nil error type *InvalidServiceName but nil value")
+				} else {
+					res.InvalidServiceName = v
+					err = nil
+					resp = &res
+				}
+			}
+		}
+	}()
+
 	if err != nil {
 		return false, nil, err
 	}
