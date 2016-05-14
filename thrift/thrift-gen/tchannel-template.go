@@ -152,7 +152,7 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 	func (s *{{ $svc.ServerStruct }}) {{ .HandleFunc }}(ctx {{ contextType }}, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 		var req {{ .ArgsType }}
 		var res {{ .ResultType }}
-		serviceMethod := "{{ .ThriftName }}::{{ .Name }}"
+		const serviceMethod = "{{ $svc.ThriftName }}::{{ .ThriftName }}"
 
 		if readErr := req.Read(protocol); readErr != nil {
 			return false, nil, readErr

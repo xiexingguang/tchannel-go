@@ -116,7 +116,7 @@ func (s *tchanAdminServer) Handle(ctx thrift.Context, methodName string, protoco
 func (s *tchanAdminServer) handleClearAll(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req AdminClearAllArgs
 	var res AdminClearAllResult
-	serviceMethod := "clearAll::ClearAll"
+	const serviceMethod = "Admin::clearAll"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -257,7 +257,7 @@ func (s *tchanKeyValueServer) Handle(ctx thrift.Context, methodName string, prot
 func (s *tchanKeyValueServer) handleGet(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req KeyValueGetArgs
 	var res KeyValueGetResult
-	serviceMethod := "Get::Get"
+	const serviceMethod = "KeyValue::Get"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -307,7 +307,7 @@ func (s *tchanKeyValueServer) handleGet(ctx thrift.Context, protocol athrift.TPr
 func (s *tchanKeyValueServer) handleSet(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req KeyValueSetArgs
 	var res KeyValueSetResult
-	serviceMethod := "Set::Set"
+	const serviceMethod = "KeyValue::Set"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -411,7 +411,7 @@ func (s *tchanBaseServiceServer) Handle(ctx thrift.Context, methodName string, p
 func (s *tchanBaseServiceServer) handleHealthCheck(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req BaseServiceHealthCheckArgs
 	var res BaseServiceHealthCheckResult
-	serviceMethod := "HealthCheck::HealthCheck"
+	const serviceMethod = "baseService::HealthCheck"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr

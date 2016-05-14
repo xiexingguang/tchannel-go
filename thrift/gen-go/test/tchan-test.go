@@ -97,7 +97,7 @@ func (s *tchanSecondServiceServer) Handle(ctx thrift.Context, methodName string,
 func (s *tchanSecondServiceServer) handleEcho(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SecondServiceEchoArgs
 	var res SecondServiceEchoResult
-	serviceMethod := "Echo::Echo"
+	const serviceMethod = "SecondService::Echo"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -231,7 +231,7 @@ func (s *tchanSimpleServiceServer) Handle(ctx thrift.Context, methodName string,
 func (s *tchanSimpleServiceServer) handleCall(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SimpleServiceCallArgs
 	var res SimpleServiceCallResult
-	serviceMethod := "Call::Call"
+	const serviceMethod = "SimpleService::Call"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -263,7 +263,7 @@ func (s *tchanSimpleServiceServer) handleCall(ctx thrift.Context, protocol athri
 func (s *tchanSimpleServiceServer) handleSimple(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SimpleServiceSimpleArgs
 	var res SimpleServiceSimpleResult
-	serviceMethod := "Simple::Simple"
+	const serviceMethod = "SimpleService::Simple"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -301,7 +301,7 @@ func (s *tchanSimpleServiceServer) handleSimple(ctx thrift.Context, protocol ath
 func (s *tchanSimpleServiceServer) handleThrows(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SimpleServiceThrowsArgs
 	var res SimpleServiceThrowsResult
-	serviceMethod := "Throws::Throws"
+	const serviceMethod = "SimpleService::Throws"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr

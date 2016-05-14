@@ -122,7 +122,7 @@ func (s *tchanTCollectorServer) Handle(ctx thrift.Context, methodName string, pr
 func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req TCollectorGetSamplingStrategyArgs
 	var res TCollectorGetSamplingStrategyResult
-	serviceMethod := "getSamplingStrategy::GetSamplingStrategy"
+	const serviceMethod = "TCollector::getSamplingStrategy"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -154,7 +154,7 @@ func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, pr
 func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req TCollectorSubmitArgs
 	var res TCollectorSubmitResult
-	serviceMethod := "submit::Submit"
+	const serviceMethod = "TCollector::submit"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -186,7 +186,7 @@ func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrif
 func (s *tchanTCollectorServer) handleSubmitBatch(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req TCollectorSubmitBatchArgs
 	var res TCollectorSubmitBatchResult
-	serviceMethod := "submitBatch::SubmitBatch"
+	const serviceMethod = "TCollector::submitBatch"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr

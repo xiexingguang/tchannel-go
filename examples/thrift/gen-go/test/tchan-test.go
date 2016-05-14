@@ -102,7 +102,7 @@ func (s *tchanBaseServer) Handle(ctx thrift.Context, methodName string, protocol
 func (s *tchanBaseServer) handleBaseCall(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req BaseBaseCallArgs
 	var res BaseBaseCallResult
-	serviceMethod := "BaseCall::BaseCall"
+	const serviceMethod = "Base::BaseCall"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -234,7 +234,7 @@ func (s *tchanFirstServer) Handle(ctx thrift.Context, methodName string, protoco
 func (s *tchanFirstServer) handleAppError(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req FirstAppErrorArgs
 	var res FirstAppErrorResult
-	serviceMethod := "AppError::AppError"
+	const serviceMethod = "First::AppError"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -262,7 +262,7 @@ func (s *tchanFirstServer) handleAppError(ctx thrift.Context, protocol athrift.T
 func (s *tchanFirstServer) handleEcho(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req FirstEchoArgs
 	var res FirstEchoResult
-	serviceMethod := "Echo::Echo"
+	const serviceMethod = "First::Echo"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -294,7 +294,7 @@ func (s *tchanFirstServer) handleEcho(ctx thrift.Context, protocol athrift.TProt
 func (s *tchanFirstServer) handleHealthcheck(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req FirstHealthcheckArgs
 	var res FirstHealthcheckResult
-	serviceMethod := "Healthcheck::Healthcheck"
+	const serviceMethod = "First::Healthcheck"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
@@ -392,7 +392,7 @@ func (s *tchanSecondServer) Handle(ctx thrift.Context, methodName string, protoc
 func (s *tchanSecondServer) handleTest(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req SecondTestArgs
 	var res SecondTestResult
-	serviceMethod := "Test::Test"
+	const serviceMethod = "Second::Test"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr

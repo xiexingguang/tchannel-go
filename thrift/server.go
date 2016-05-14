@@ -80,7 +80,9 @@ func (s *Server) Register(svr TChanServer, opts ...RegisterOption) {
 	for _, m := range svr.Methods() {
 		s.ch.Register(s, service+"::"+m)
 	}
-	svr.RegisterInterceptorRunner(s)
+	if registrar, ok := svr.(InterceptorRunnerRegistrar); ok {
+		registrar.RegisterInterceptorRunner(s)
+	}
 }
 
 // RegisterHealthHandler uses the user-specified function f for the Health endpoint.
@@ -109,8 +111,8 @@ func (s *Server) RunPre(ctx Context, method string, args thrift.TStruct) (Interc
 	}
 
 	postFn := func(response thrift.TStruct, err error) error {
-		for _, interceptor := range postInterceptors {
-			err = interceptor.Post(ctx, method, args, response, err)
+		for i := len(postInterceptors) - 1; i >= 0; i-- {
+			err = postInterceptors[i].Post(ctx, method, args, response, err)
 		}
 		return err
 	}

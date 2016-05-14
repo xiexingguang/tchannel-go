@@ -96,7 +96,7 @@ func (s *tchanHyperbahnServer) Handle(ctx thrift.Context, methodName string, pro
 func (s *tchanHyperbahnServer) handleDiscover(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
 	var req HyperbahnDiscoverArgs
 	var res HyperbahnDiscoverResult
-	serviceMethod := "discover::Discover"
+	const serviceMethod = "Hyperbahn::discover"
 
 	if readErr := req.Read(protocol); readErr != nil {
 		return false, nil, readErr
