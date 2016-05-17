@@ -22,30 +22,21 @@ package thrift
 
 import athrift "github.com/apache/thrift/lib/go/thrift"
 
-// This file defines interfaces that are used or exposed by thrift-gen
-// generated code. TChanClient is used by the generated code to make
-// outgoing requests. TChanServer is exposed by the generated code,
-// and is called on incoming requests.
+// This file defines interfaces that are used or exposed by thrift-gen generated code.
+// TChanClient is used by the generated code to make outgoing requests.
+// TChanServer is exposed by the generated code, and is called on incoming requests.
 
-// TChanClient abstracts calling a Thrift endpoint, and is used by the
-// generated client code.
+// TChanClient abstracts calling a Thrift endpoint, and is used by the generated client code.
 type TChanClient interface {
-	// Call should be passed the method to call and the
-	// request/response Thrift structs.
-	Call(
-		ctx Context, serviceName, methodName string, req, resp athrift.TStruct,
-	) (success bool, err error)
+	// Call should be passed the method to call and the request/response Thrift structs.
+	Call(ctx Context, serviceName, methodName string, req, resp athrift.TStruct) (success bool, err error)
 }
 
-// TChanServer abstracts handling of an RPC that is implemented by the
-// generated server code.
+// TChanServer abstracts handling of an RPC that is implemented by the generated server code.
 type TChanServer interface {
-	// Handle should read the request from the given reqReader, and
-	// return the response struct. The arguments returned are success,
-	// result struct, unexpected error
-	Handle(
-		ctx Context, methodName string, protocol athrift.TProtocol,
-	) (success bool, resp athrift.TStruct, err error)
+	// Handle should read the request from the given reqReader, and return the response struct.
+	// The arguments returned are success, result struct, unexpected error
+	Handle(ctx Context, methodName string, protocol athrift.TProtocol) (success bool, resp athrift.TStruct, err error)
 
 	// Service returns the service name.
 	Service() string
