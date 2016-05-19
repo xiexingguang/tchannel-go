@@ -485,7 +485,7 @@ func TestFragmentationSlowReader(t *testing.T) {
 
 func TestWriteArg3AfterTimeout(t *testing.T) {
 	// The channel reads and writes during timeouts, causing warning logs.
-	opts := testutils.NewOpts().DisableLogVerification().SetRelay()
+	opts := testutils.NewOpts().DisableLogVerification().SetRelay().SetRunCount(1000)
 	testutils.WithTestServer(t, opts, func(ts *testutils.TestServer) {
 		timedOut := make(chan struct{})
 
