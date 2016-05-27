@@ -463,12 +463,10 @@ func TestSuccessSetProperlyWhenPostAddsException(t *testing.T) {
 
 func TestErrorsHandledCurrectly(t *testing.T) {
 	withSetup(t, func(ctx Context, args testArgs) {
-		interceptor := &mocks.Interceptor{}
 		simpleError := &gen.SimpleErr{Message: "hey"}
-		args.s1.On("Throws", mock.Anything, mock.Anything).Return("return", simpleError)
-		_, err := args.c1.Throws(ctx, "test")
+		args.s1.On("Simple", mock.Anything).Return(simpleError)
+		err := args.c1.Simple(ctx)
 		assert.Equal(t, simpleError, err)
-		interceptor.AssertExpectations(t)
 	})
 }
 
