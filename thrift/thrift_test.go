@@ -461,7 +461,7 @@ func TestSuccessSetProperlyWhenPostAddsException(t *testing.T) {
 	})
 }
 
-func TestErrorsHandledCurrectly(t *testing.T) {
+func TestErrorsHandledCorrectly(t *testing.T) {
 	withSetup(t, func(ctx Context, args testArgs) {
 		simpleError := &gen.SimpleErr{Message: "hey"}
 		args.s1.On("Simple", mock.Anything).Return(simpleError)

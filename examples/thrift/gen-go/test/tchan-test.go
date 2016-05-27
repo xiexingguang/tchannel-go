@@ -112,7 +112,7 @@ func (s *tchanBaseServer) handleBaseCall(ctx thrift.Context, protocol athrift.TP
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
 		} else {
@@ -247,7 +247,7 @@ func (s *tchanFirstServer) handleAppError(ctx thrift.Context, protocol athrift.T
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
 		} else {
@@ -278,9 +278,8 @@ func (s *tchanFirstServer) handleEcho(ctx thrift.Context, protocol athrift.TProt
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 		} else {
 			resp = &res
@@ -314,9 +313,8 @@ func (s *tchanFirstServer) handleHealthcheck(ctx thrift.Context, protocol athrif
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 		} else {
 			resp = &res
@@ -416,7 +414,7 @@ func (s *tchanSecondServer) handleTest(ctx thrift.Context, protocol athrift.TPro
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
 		} else {

@@ -107,9 +107,8 @@ func (s *tchanSecondServiceServer) handleEcho(ctx thrift.Context, protocol athri
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 		} else {
 			resp = &res
@@ -245,9 +244,8 @@ func (s *tchanSimpleServiceServer) handleCall(ctx thrift.Context, protocol athri
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 		} else {
 			resp = &res
@@ -281,7 +279,7 @@ func (s *tchanSimpleServiceServer) handleSimple(ctx thrift.Context, protocol ath
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
 			switch v := retErr.(type) {
@@ -291,6 +289,7 @@ func (s *tchanSimpleServiceServer) handleSimple(ctx thrift.Context, protocol ath
 				} else {
 					res.SimpleErr = v
 					resp = &res
+					retErr = nil
 				}
 			}
 		} else {
@@ -321,9 +320,8 @@ func (s *tchanSimpleServiceServer) handleThrows(ctx thrift.Context, protocol ath
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 			switch v := retErr.(type) {
 			case *SimpleErr:
@@ -332,6 +330,7 @@ func (s *tchanSimpleServiceServer) handleThrows(ctx thrift.Context, protocol ath
 				} else {
 					res.SimpleErr = v
 					resp = &res
+					retErr = nil
 				}
 			}
 		} else {

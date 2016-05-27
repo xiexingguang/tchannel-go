@@ -106,9 +106,8 @@ func (s *tchanHyperbahnServer) handleDiscover(ctx thrift.Context, protocol athri
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 			switch v := retErr.(type) {
 			case *NoPeersAvailable:
@@ -117,6 +116,7 @@ func (s *tchanHyperbahnServer) handleDiscover(ctx thrift.Context, protocol athri
 				} else {
 					res.NoPeersAvailable = v
 					resp = &res
+					retErr = nil
 				}
 			case *InvalidServiceName:
 				if v == nil {
@@ -124,6 +124,7 @@ func (s *tchanHyperbahnServer) handleDiscover(ctx thrift.Context, protocol athri
 				} else {
 					res.InvalidServiceName = v
 					resp = &res
+					retErr = nil
 				}
 			}
 		} else {

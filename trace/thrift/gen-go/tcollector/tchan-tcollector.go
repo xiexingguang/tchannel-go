@@ -132,9 +132,8 @@ func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, pr
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 		} else {
 			resp = &res
@@ -168,9 +167,8 @@ func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrif
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 		} else {
 			resp = &res
@@ -204,9 +202,8 @@ func (s *tchanTCollectorServer) handleSubmitBatch(ctx thrift.Context, protocol a
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 		} else {
 			resp = &res

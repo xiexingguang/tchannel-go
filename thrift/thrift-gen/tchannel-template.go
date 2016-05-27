@@ -162,7 +162,7 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 
 		defer func () {
 			retErr = postRun(resp, err)
-			handled = retErr != nil
+			handled = retErr == nil
 			if retErr != nil {
 				resp = nil
 				{{ if .HasExceptions }}
@@ -174,6 +174,7 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 						} else {
 							res.{{ .ArgStructName }} = v
 							resp = &res
+							retErr = nil
 						}
 					{{ end }}
 				}

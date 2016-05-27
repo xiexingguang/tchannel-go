@@ -126,7 +126,7 @@ func (s *tchanAdminServer) handleClearAll(ctx thrift.Context, protocol athrift.T
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
 			switch v := retErr.(type) {
@@ -136,6 +136,7 @@ func (s *tchanAdminServer) handleClearAll(ctx thrift.Context, protocol athrift.T
 				} else {
 					res.NotAuthorized = v
 					resp = &res
+					retErr = nil
 				}
 			}
 		} else {
@@ -269,9 +270,8 @@ func (s *tchanKeyValueServer) handleGet(ctx thrift.Context, protocol athrift.TPr
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 			switch v := retErr.(type) {
 			case *KeyNotFound:
@@ -280,6 +280,7 @@ func (s *tchanKeyValueServer) handleGet(ctx thrift.Context, protocol athrift.TPr
 				} else {
 					res.NotFound = v
 					resp = &res
+					retErr = nil
 				}
 			case *InvalidKey:
 				if v == nil {
@@ -287,6 +288,7 @@ func (s *tchanKeyValueServer) handleGet(ctx thrift.Context, protocol athrift.TPr
 				} else {
 					res.InvalidKey = v
 					resp = &res
+					retErr = nil
 				}
 			}
 		} else {
@@ -321,7 +323,7 @@ func (s *tchanKeyValueServer) handleSet(ctx thrift.Context, protocol athrift.TPr
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
 			switch v := retErr.(type) {
@@ -331,6 +333,7 @@ func (s *tchanKeyValueServer) handleSet(ctx thrift.Context, protocol athrift.TPr
 				} else {
 					res.InvalidKey = v
 					resp = &res
+					retErr = nil
 				}
 			}
 		} else {
@@ -427,9 +430,8 @@ func (s *tchanBaseServiceServer) handleHealthCheck(ctx thrift.Context, protocol 
 
 	defer func() {
 		retErr = postRun(resp, err)
-		handled = retErr != nil
+		handled = retErr == nil
 		if retErr != nil {
-			res.Success = nil
 			resp = nil
 		} else {
 			resp = &res
