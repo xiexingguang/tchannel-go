@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"github.com/apache/thrift/lib/go/thrift"
+	athrift "github.com/apache/thrift/lib/go/thrift"
 	tchannel "github.com/uber/tchannel-go"
 	"golang.org/x/net/context"
 )
@@ -96,11 +97,18 @@ func (s *Server) RegisterInterceptor(interceptor Interceptor) {
 	s.interceptors = append(s.interceptors, interceptor)
 }
 
+func defaultPostRunner(response athrift.TStruct, err error) error {
+	return err
+}
+
 // RunPre executes the pre function intercepters registered on the
 // server until one of them fails, and produces a
 // InterceptorPostRunner that will excute the Post methods of all
 // inteceptors whose Pre methods were executed.
 func (s *Server) RunPre(ctx Context, method string, args thrift.TStruct) (InterceptorPostRunner, error) {
+	if len(s.interceptors) == 0 {
+		return defaultPostRunner, nil
+	}
 	var retErr error
 	postInterceptors := make([]Interceptor, 0, len(s.interceptors))
 	for _, interceptor := range s.interceptors {

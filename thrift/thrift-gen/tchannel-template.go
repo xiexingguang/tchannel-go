@@ -149,7 +149,7 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 }
 
 {{ range .Methods }}
-	func (s *{{ $svc.ServerStruct }}) {{ .HandleFunc }}(ctx {{ contextType }}, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+	func (s *{{ $svc.ServerStruct }}) {{ .HandleFunc }}(ctx {{ contextType }}, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, retErr error) {
 		var req {{ .ArgsType }}
 		var res {{ .ResultType }}
 		const serviceMethod = "{{ $svc.ThriftName }}::{{ .ThriftName }}"
@@ -161,28 +161,30 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 		postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 		defer func () {
-			err = postRun(resp, err)
-			if err != nil {
+			retErr = postRun(resp, err)
+			handled = retErr != nil
+			if retErr != nil {
 				resp = nil
 				{{ if .HasExceptions }}
-				switch v := err.(type) {
+				switch v := retErr.(type) {
 					{{ range .Exceptions }}
 					case {{ .ArgType }}:
 						if v == nil {
-							err = fmt.Errorf("Handler for {{ .Name }} returned non-nil error type {{ .ArgType }} but nil value")
+							retErr = fmt.Errorf("Handler for {{ .Name }} returned non-nil error type {{ .ArgType }} but nil value")
 						} else {
 							res.{{ .ArgStructName }} = v
-							err = nil
 							resp = &res
 						}
 					{{ end }}
 				}
 				{{ end }}
+			} else {
+				resp = &res
 			}
 		}()
 
 		if err != nil {
-			return false, nil, err
+			return
 		}
 
 		{{ if .HasReturn }}
@@ -198,7 +200,7 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 		}
 		{{ end }}
 
-		return err == nil, &res, err
+		return
 	}
 {{ end }}
 

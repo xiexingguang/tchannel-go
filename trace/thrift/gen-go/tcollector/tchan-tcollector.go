@@ -119,7 +119,7 @@ func (s *tchanTCollectorServer) Handle(ctx thrift.Context, methodName string, pr
 	}
 }
 
-func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, retErr error) {
 	var req TCollectorGetSamplingStrategyArgs
 	var res TCollectorGetSamplingStrategyResult
 	const serviceMethod = "TCollector::getSamplingStrategy"
@@ -131,14 +131,18 @@ func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, pr
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
-		err = postRun(resp, err)
-		if err != nil {
+		retErr = postRun(resp, err)
+		handled = retErr != nil
+		if retErr != nil {
+			res.Success = nil
 			resp = nil
+		} else {
+			resp = &res
 		}
 	}()
 
 	if err != nil {
-		return false, nil, err
+		return
 	}
 
 	r, err :=
@@ -148,10 +152,10 @@ func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, pr
 		res.Success = r
 	}
 
-	return err == nil, &res, err
+	return
 }
 
-func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, retErr error) {
 	var req TCollectorSubmitArgs
 	var res TCollectorSubmitResult
 	const serviceMethod = "TCollector::submit"
@@ -163,14 +167,18 @@ func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrif
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
-		err = postRun(resp, err)
-		if err != nil {
+		retErr = postRun(resp, err)
+		handled = retErr != nil
+		if retErr != nil {
+			res.Success = nil
 			resp = nil
+		} else {
+			resp = &res
 		}
 	}()
 
 	if err != nil {
-		return false, nil, err
+		return
 	}
 
 	r, err :=
@@ -180,10 +188,10 @@ func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrif
 		res.Success = r
 	}
 
-	return err == nil, &res, err
+	return
 }
 
-func (s *tchanTCollectorServer) handleSubmitBatch(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+func (s *tchanTCollectorServer) handleSubmitBatch(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, retErr error) {
 	var req TCollectorSubmitBatchArgs
 	var res TCollectorSubmitBatchResult
 	const serviceMethod = "TCollector::submitBatch"
@@ -195,14 +203,18 @@ func (s *tchanTCollectorServer) handleSubmitBatch(ctx thrift.Context, protocol a
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
-		err = postRun(resp, err)
-		if err != nil {
+		retErr = postRun(resp, err)
+		handled = retErr != nil
+		if retErr != nil {
+			res.Success = nil
 			resp = nil
+		} else {
+			resp = &res
 		}
 	}()
 
 	if err != nil {
-		return false, nil, err
+		return
 	}
 
 	r, err :=
@@ -212,5 +224,5 @@ func (s *tchanTCollectorServer) handleSubmitBatch(ctx thrift.Context, protocol a
 		res.Success = r
 	}
 
-	return err == nil, &res, err
+	return
 }

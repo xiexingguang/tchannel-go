@@ -63,25 +63,19 @@ type InterceptorPostRunner func(response athrift.TStruct, err error) error
 type InterceptorRunner interface {
 	// RunPre will run the pre interceptors in order, and return
 	// a function for the post interceptors to run.
-	RunPre(ctx Context, method string, args athrift.TStruct) (
-		runPost InterceptorPostRunner, err error,
-	)
+	RunPre(ctx Context, method string, args athrift.TStruct) (runPost InterceptorPostRunner, err error)
 }
 
 // Interceptor represents operations that should be performed before
 // and after a tchannel request.
 type Interceptor interface {
-	// Pre is called before the handler code for a request is
-	// entered. If an error is returned, the request is short circuited
-	// and the Post method of all interceptors is called with the
-	// error.
+	// Pre is called before the handler code for a request is entered.
+	// If an error is returned, the request is short circuited and the
+	// Post method of all interceptors is called with the error.
 	Pre(ctx Context, method string, args athrift.TStruct) error
 
-	// Post is called when we have a response (or error). If a panic is
-	// caught, then the panic is wrapped in thrift/PanicErr. Post may
+	// Post is called when we have a response (or error). Post may
 	// translate response/err into a different error (e.g. replace
 	// app.Err with thrift_app.Err).
-	Post(
-		ctx Context, method string, args, response athrift.TStruct, err error,
-	) error
+	Post(ctx Context, method string, args, response athrift.TStruct, err error) error
 }

@@ -99,7 +99,7 @@ func (s *tchanBaseServer) Handle(ctx thrift.Context, methodName string, protocol
 	}
 }
 
-func (s *tchanBaseServer) handleBaseCall(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+func (s *tchanBaseServer) handleBaseCall(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, retErr error) {
 	var req BaseBaseCallArgs
 	var res BaseBaseCallResult
 	const serviceMethod = "Base::BaseCall"
@@ -111,20 +111,23 @@ func (s *tchanBaseServer) handleBaseCall(ctx thrift.Context, protocol athrift.TP
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
-		err = postRun(resp, err)
-		if err != nil {
+		retErr = postRun(resp, err)
+		handled = retErr != nil
+		if retErr != nil {
 			resp = nil
+		} else {
+			resp = &res
 		}
 	}()
 
 	if err != nil {
-		return false, nil, err
+		return
 	}
 
 	err =
 		s.handler.BaseCall(ctx)
 
-	return err == nil, &res, err
+	return
 }
 
 type tchanFirstClient struct {
@@ -231,7 +234,7 @@ func (s *tchanFirstServer) Handle(ctx thrift.Context, methodName string, protoco
 	}
 }
 
-func (s *tchanFirstServer) handleAppError(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+func (s *tchanFirstServer) handleAppError(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, retErr error) {
 	var req FirstAppErrorArgs
 	var res FirstAppErrorResult
 	const serviceMethod = "First::AppError"
@@ -243,23 +246,26 @@ func (s *tchanFirstServer) handleAppError(ctx thrift.Context, protocol athrift.T
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
-		err = postRun(resp, err)
-		if err != nil {
+		retErr = postRun(resp, err)
+		handled = retErr != nil
+		if retErr != nil {
 			resp = nil
+		} else {
+			resp = &res
 		}
 	}()
 
 	if err != nil {
-		return false, nil, err
+		return
 	}
 
 	err =
 		s.handler.AppError(ctx)
 
-	return err == nil, &res, err
+	return
 }
 
-func (s *tchanFirstServer) handleEcho(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+func (s *tchanFirstServer) handleEcho(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, retErr error) {
 	var req FirstEchoArgs
 	var res FirstEchoResult
 	const serviceMethod = "First::Echo"
@@ -271,14 +277,18 @@ func (s *tchanFirstServer) handleEcho(ctx thrift.Context, protocol athrift.TProt
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
-		err = postRun(resp, err)
-		if err != nil {
+		retErr = postRun(resp, err)
+		handled = retErr != nil
+		if retErr != nil {
+			res.Success = nil
 			resp = nil
+		} else {
+			resp = &res
 		}
 	}()
 
 	if err != nil {
-		return false, nil, err
+		return
 	}
 
 	r, err :=
@@ -288,10 +298,10 @@ func (s *tchanFirstServer) handleEcho(ctx thrift.Context, protocol athrift.TProt
 		res.Success = &r
 	}
 
-	return err == nil, &res, err
+	return
 }
 
-func (s *tchanFirstServer) handleHealthcheck(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+func (s *tchanFirstServer) handleHealthcheck(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, retErr error) {
 	var req FirstHealthcheckArgs
 	var res FirstHealthcheckResult
 	const serviceMethod = "First::Healthcheck"
@@ -303,14 +313,18 @@ func (s *tchanFirstServer) handleHealthcheck(ctx thrift.Context, protocol athrif
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
-		err = postRun(resp, err)
-		if err != nil {
+		retErr = postRun(resp, err)
+		handled = retErr != nil
+		if retErr != nil {
+			res.Success = nil
 			resp = nil
+		} else {
+			resp = &res
 		}
 	}()
 
 	if err != nil {
-		return false, nil, err
+		return
 	}
 
 	r, err :=
@@ -320,7 +334,7 @@ func (s *tchanFirstServer) handleHealthcheck(ctx thrift.Context, protocol athrif
 		res.Success = r
 	}
 
-	return err == nil, &res, err
+	return
 }
 
 type tchanSecondClient struct {
@@ -389,7 +403,7 @@ func (s *tchanSecondServer) Handle(ctx thrift.Context, methodName string, protoc
 	}
 }
 
-func (s *tchanSecondServer) handleTest(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, err error) {
+func (s *tchanSecondServer) handleTest(ctx thrift.Context, protocol athrift.TProtocol) (handled bool, resp athrift.TStruct, retErr error) {
 	var req SecondTestArgs
 	var res SecondTestResult
 	const serviceMethod = "Second::Test"
@@ -401,18 +415,21 @@ func (s *tchanSecondServer) handleTest(ctx thrift.Context, protocol athrift.TPro
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
-		err = postRun(resp, err)
-		if err != nil {
+		retErr = postRun(resp, err)
+		handled = retErr != nil
+		if retErr != nil {
 			resp = nil
+		} else {
+			resp = &res
 		}
 	}()
 
 	if err != nil {
-		return false, nil, err
+		return
 	}
 
 	err =
 		s.handler.Test(ctx)
 
-	return err == nil, &res, err
+	return
 }

@@ -102,10 +102,6 @@ func (s *tchanMetaServer) Methods() []string {
 	}
 }
 
-// RegisterInterceptors has no effect on the tchan-meta service
-func (s *tchanMetaServer) RegisterInterceptors(interceptors ...Interceptor) {
-}
-
 func (s *tchanMetaServer) Handle(ctx Context, methodName string, protocol athrift.TProtocol) (bool, athrift.TStruct, error) {
 	switch methodName {
 	case "health":
