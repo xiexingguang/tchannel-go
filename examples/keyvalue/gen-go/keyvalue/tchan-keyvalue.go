@@ -125,6 +125,7 @@ func (s *tchanAdminServer) handleClearAll(ctx thrift.Context, protocol athrift.T
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
@@ -135,12 +136,10 @@ func (s *tchanAdminServer) handleClearAll(ctx thrift.Context, protocol athrift.T
 					retErr = fmt.Errorf("Handler for notAuthorized returned non-nil error type *NotAuthorized but nil value")
 				} else {
 					res.NotAuthorized = v
-					resp = &res
 					retErr = nil
+					resp = &res
 				}
 			}
-		} else {
-			resp = &res
 		}
 	}()
 
@@ -269,6 +268,7 @@ func (s *tchanKeyValueServer) handleGet(ctx thrift.Context, protocol athrift.TPr
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
@@ -279,20 +279,18 @@ func (s *tchanKeyValueServer) handleGet(ctx thrift.Context, protocol athrift.TPr
 					retErr = fmt.Errorf("Handler for notFound returned non-nil error type *KeyNotFound but nil value")
 				} else {
 					res.NotFound = v
-					resp = &res
 					retErr = nil
+					resp = &res
 				}
 			case *InvalidKey:
 				if v == nil {
 					retErr = fmt.Errorf("Handler for invalidKey returned non-nil error type *InvalidKey but nil value")
 				} else {
 					res.InvalidKey = v
-					resp = &res
 					retErr = nil
+					resp = &res
 				}
 			}
-		} else {
-			resp = &res
 		}
 	}()
 
@@ -322,6 +320,7 @@ func (s *tchanKeyValueServer) handleSet(ctx thrift.Context, protocol athrift.TPr
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
@@ -332,12 +331,10 @@ func (s *tchanKeyValueServer) handleSet(ctx thrift.Context, protocol athrift.TPr
 					retErr = fmt.Errorf("Handler for invalidKey returned non-nil error type *InvalidKey but nil value")
 				} else {
 					res.InvalidKey = v
-					resp = &res
 					retErr = nil
+					resp = &res
 				}
 			}
-		} else {
-			resp = &res
 		}
 	}()
 
@@ -429,12 +426,11 @@ func (s *tchanBaseServiceServer) handleHealthCheck(ctx thrift.Context, protocol 
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
-		} else {
-			resp = &res
 		}
 	}()
 

@@ -324,19 +324,19 @@ type interceptor struct {
 }
 
 func (i interceptor) Pre(ctx Context, method string, args athrift.TStruct) error {
-	if i.pre != nil {
-		return i.pre(ctx, method, args)
+	if i.pre == nil {
+		return nil
 	}
-	return nil
+	return i.pre(ctx, method, args)
 }
 
 func (i interceptor) Post(
 	ctx Context, method string, args, response athrift.TStruct, err error,
 ) error {
-	if i.post != nil {
-		return i.post(ctx, method, args, response, err)
+	if i.post == nil {
+		return err
 	}
-	return err
+	return i.post(ctx, method, args, response, err)
 }
 
 func TestPreInterceptorCallOrderAndArguments(t *testing.T) {
@@ -394,8 +394,9 @@ func TestPreInterceptorCallOrderAndArguments(t *testing.T) {
 		_, err := args.c1.Throws(ctx, arg)
 
 		assert.NoError(t, err)
-		firstInterceptor.AssertExpectations(t)
-		secondInterceptor.AssertExpectations(t)
+		mock.AssertExpectationsForObjects(
+			t, firstInterceptor.Mock, secondInterceptor.Mock,
+		)
 	})
 }
 
@@ -436,9 +437,9 @@ func TestPreInterceptorShortCircuiting(t *testing.T) {
 		assert.Equal(t, result, "")
 		assert.Equal(t, secondTransformedError, err)
 
-		firstInterceptor.AssertExpectations(t)
-		errorInterceptor.AssertExpectations(t)
-		uncalledInterceptor.AssertExpectations(t)
+		mock.AssertExpectationsForObjects(
+			t, firstInterceptor.Mock, errorInterceptor.Mock, uncalledInterceptor.Mock,
+		)
 	})
 }
 

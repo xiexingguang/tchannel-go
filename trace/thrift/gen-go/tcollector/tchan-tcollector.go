@@ -131,12 +131,11 @@ func (s *tchanTCollectorServer) handleGetSamplingStrategy(ctx thrift.Context, pr
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
-		} else {
-			resp = &res
 		}
 	}()
 
@@ -166,12 +165,11 @@ func (s *tchanTCollectorServer) handleSubmit(ctx thrift.Context, protocol athrif
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
-		} else {
-			resp = &res
 		}
 	}()
 
@@ -201,12 +199,11 @@ func (s *tchanTCollectorServer) handleSubmitBatch(ctx thrift.Context, protocol a
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
-		} else {
-			resp = &res
 		}
 	}()
 

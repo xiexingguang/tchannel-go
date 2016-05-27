@@ -105,6 +105,7 @@ func (s *tchanHyperbahnServer) handleDiscover(ctx thrift.Context, protocol athri
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
@@ -115,20 +116,18 @@ func (s *tchanHyperbahnServer) handleDiscover(ctx thrift.Context, protocol athri
 					retErr = fmt.Errorf("Handler for noPeersAvailable returned non-nil error type *NoPeersAvailable but nil value")
 				} else {
 					res.NoPeersAvailable = v
-					resp = &res
 					retErr = nil
+					resp = &res
 				}
 			case *InvalidServiceName:
 				if v == nil {
 					retErr = fmt.Errorf("Handler for invalidServiceName returned non-nil error type *InvalidServiceName but nil value")
 				} else {
 					res.InvalidServiceName = v
-					resp = &res
 					retErr = nil
+					resp = &res
 				}
 			}
-		} else {
-			resp = &res
 		}
 	}()
 

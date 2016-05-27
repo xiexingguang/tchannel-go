@@ -111,12 +111,11 @@ func (s *tchanBaseServer) handleBaseCall(ctx thrift.Context, protocol athrift.TP
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
-		} else {
-			resp = &res
 		}
 	}()
 
@@ -246,12 +245,11 @@ func (s *tchanFirstServer) handleAppError(ctx thrift.Context, protocol athrift.T
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
-		} else {
-			resp = &res
 		}
 	}()
 
@@ -277,12 +275,11 @@ func (s *tchanFirstServer) handleEcho(ctx thrift.Context, protocol athrift.TProt
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
-		} else {
-			resp = &res
 		}
 	}()
 
@@ -312,12 +309,11 @@ func (s *tchanFirstServer) handleHealthcheck(ctx thrift.Context, protocol athrif
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
-		} else {
-			resp = &res
 		}
 	}()
 
@@ -413,12 +409,11 @@ func (s *tchanSecondServer) handleTest(ctx thrift.Context, protocol athrift.TPro
 	postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 	defer func() {
+		resp = &res
 		retErr = postRun(resp, err)
 		handled = retErr == nil
 		if retErr != nil {
 			resp = nil
-		} else {
-			resp = &res
 		}
 	}()
 

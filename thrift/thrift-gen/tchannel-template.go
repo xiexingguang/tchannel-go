@@ -161,6 +161,7 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 		postRun, err := s.interceptorRunner.RunPre(ctx, serviceMethod, &req)
 
 		defer func () {
+			resp = &res
 			retErr = postRun(resp, err)
 			handled = retErr == nil
 			if retErr != nil {
@@ -173,14 +174,12 @@ func (s *{{ .ServerStruct }}) Handle(ctx {{ contextType }}, methodName string, p
 							retErr = fmt.Errorf("Handler for {{ .Name }} returned non-nil error type {{ .ArgType }} but nil value")
 						} else {
 							res.{{ .ArgStructName }} = v
-							resp = &res
 							retErr = nil
+							resp = &res
 						}
 					{{ end }}
 				}
 				{{ end }}
-			} else {
-				resp = &res
 			}
 		}()
 
