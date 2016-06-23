@@ -36,7 +36,6 @@ const (
 )
 
 type tchannelCtxParams struct {
-	span           *Span
 	call           IncomingCall
 	options        *CallOptions
 	retryOptions   *RetryOptions
@@ -87,10 +86,9 @@ func WrapContextForTest(ctx context.Context, call IncomingCall) context.Context 
 }
 
 // newIncomingContext creates a new context for an incoming call with the given span.
-func newIncomingContext(call IncomingCall, timeout time.Duration, span *Span) (context.Context, context.CancelFunc) {
+func newIncomingContext(call IncomingCall, timeout time.Duration) (context.Context, context.CancelFunc) {
 	return NewContextBuilder(timeout).
 		setIncomingCall(call).
-		setSpan(span).
 		Build()
 }
 
@@ -102,13 +100,13 @@ func CurrentCall(ctx context.Context) IncomingCall {
 	return nil
 }
 
-// CurrentSpan returns the Span value for the provided Context
-func CurrentSpan(ctx context.Context) *Span {
-	if params := getTChannelParams(ctx); params != nil {
-		return params.span
-	}
-	return nil
-}
+//// CurrentSpan returns the Span value for the provided Context
+//func CurrentSpan(ctx context.Context) *Span {
+//	if params := getTChannelParams(ctx); params != nil {
+//		return params.span
+//	}
+//	return nil
+//}
 
 func currentCallOptions(ctx context.Context) *CallOptions {
 	if params := getTChannelParams(ctx); params != nil {

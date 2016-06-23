@@ -56,7 +56,6 @@ type ContextBuilder struct {
 
 	// Hidden fields: we do not want users outside of tchannel to set these.
 	incomingCall IncomingCall
-	span         *Span
 
 	// replaceParentHeaders is set to true when SetHeaders() method is called.
 	// It forces headers from ParentContext to be ignored. When false, parent
@@ -142,12 +141,6 @@ func (cb *ContextBuilder) SetIncomingCallForTest(call IncomingCall) *ContextBuil
 	return cb.setIncomingCall(call)
 }
 
-// SetSpanForTest sets a tracing span in the context.
-// This should only be used in unit tests.
-func (cb *ContextBuilder) SetSpanForTest(span *Span) *ContextBuilder {
-	return cb.setSpan(span)
-}
-
 // SetRetryOptions sets RetryOptions in the context.
 func (cb *ContextBuilder) SetRetryOptions(retryOptions *RetryOptions) *ContextBuilder {
 	cb.RetryOptions = retryOptions
@@ -169,34 +162,9 @@ func (cb *ContextBuilder) SetParentContext(ctx context.Context) *ContextBuilder 
 	return cb
 }
 
-// SetExternalSpan creates a new TChannel tracing Span from externally provided IDs
-// and sets it as the current span for the context.
-// Intended for integration with other Zipkin-like tracers.
-func (cb *ContextBuilder) SetExternalSpan(traceID, spanID, parentID uint64, traced bool) *ContextBuilder {
-	span := newSpan(traceID, spanID, parentID, traced)
-	return cb.setSpan(span)
-}
-
-func (cb *ContextBuilder) setSpan(span *Span) *ContextBuilder {
-	cb.span = span
-	return cb
-}
-
 func (cb *ContextBuilder) setIncomingCall(call IncomingCall) *ContextBuilder {
 	cb.incomingCall = call
 	return cb
-}
-
-func (cb *ContextBuilder) getSpan() *Span {
-	if cb.span != nil {
-		return cb.span
-	}
-	if cb.ParentContext != nil {
-		if span := CurrentSpan(cb.ParentContext); span != nil {
-			return span
-		}
-	}
-	return NewRootSpan()
 }
 
 func (cb *ContextBuilder) getHeaders() map[string]string {
@@ -221,14 +189,12 @@ func (cb *ContextBuilder) getHeaders() map[string]string {
 
 // Build returns a ContextWithHeaders that can be used to make calls.
 func (cb *ContextBuilder) Build() (ContextWithHeaders, context.CancelFunc) {
-	span := cb.getSpan()
 	if cb.TracingDisabled {
-		span.EnableTracing(false)
+		// span.EnableTracing(false)
 	}
 
 	params := &tchannelCtxParams{
 		options:        cb.CallOptions,
-		span:           span,
 		call:           cb.incomingCall,
 		retryOptions:   cb.RetryOptions,
 		connectTimeout: cb.ConnectTimeout,

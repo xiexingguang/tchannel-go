@@ -115,7 +115,7 @@ func (c *Connection) beginCall(ctx context.Context, serviceName, methodName stri
 
 	// handle tracing
 	parentSpan := opentracing.SpanFromContext(ctx)
-	span := c.tracer.StartSpanWithOptions(opentracing.StartSpanOptions{
+	span := c.Tracer().StartSpanWithOptions(opentracing.StartSpanOptions{
 		OperationName: serviceName + "::" + methodName,
 		Parent: parentSpan,
 		StartTime: now,
@@ -126,7 +126,7 @@ func (c *Connection) beginCall(ctx context.Context, serviceName, methodName stri
 	span.SetTag("as", call.callReq.Headers[ArgScheme])
 
 	call.callReq.Tracing.initFromOpenTracing(span)
-	response.Span = span
+	response.span = span
 
 	response.requestState = callOptions.RequestState
 	response.mex = mex
@@ -228,7 +228,6 @@ func (call *OutboundCall) doneSending() {}
 // An OutboundCallResponse is the response to an outbound call
 type OutboundCallResponse struct {
 	reqResReader
-	Span opentracing.Span
 
 	callRes callRes
 
@@ -236,6 +235,7 @@ type OutboundCallResponse struct {
 	// startedAt is the time at which the outbound call was started.
 	startedAt       time.Time
 	timeNow         func() time.Time
+	span            opentracing.Span
 	statsReporter   StatsReporter
 	commonStatsTags map[string]string
 }
@@ -325,7 +325,7 @@ func (response *OutboundCallResponse) doneReading(unexpected error) {
 	isSuccess := unexpected == nil && !response.ApplicationError()
 	lastAttempt := isSuccess || !response.requestState.HasRetries(unexpected)
 
-	if span := response.Span; span != nil {
+	if span := response.span; span != nil {
 		if !isSuccess {
 			span.SetTag("error", true)
 		}

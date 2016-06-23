@@ -73,7 +73,7 @@ func (c *Client) sendAdvertise() error {
 	defer cancel()
 
 	// Disable tracing on Hyperbahn advertise messages to avoid cascading failures (see #790).
-	tchannel.CurrentSpan(ctx).EnableTracing(false)
+	// tchannel.CurrentSpan(ctx).EnableTracing(false)
 
 	var resp AdResponse
 	c.opts.Handler.On(SendAdvertise)

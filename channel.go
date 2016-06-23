@@ -49,9 +49,6 @@ const (
 	ephemeralHostPort = "0.0.0.0:0"
 )
 
-// TraceReporterFactory is the interface of the method to generate TraceReporter instance.
-type TraceReporterFactory func(*Channel) TraceReporter
-
 // ChannelOptions are used to control parameters on a create a TChannel
 type ChannelOptions struct {
 	// Default Connection options
@@ -135,9 +132,18 @@ type channelConnectionCommon struct {
 	log             Logger
 	relayStats      relay.Stats
 	statsReporter   StatsReporter
-	tracer          opentracing.Tracer
+	_tracer          opentracing.Tracer
 	subChannels     *subChannelMap
 	timeNow         func() time.Time
+}
+
+// Tracer returns the OpenTracing Tracer for this channel.
+func (ccc channelConnectionCommon) Tracer() opentracing.Tracer {
+	tracer := ccc._tracer
+	if tracer == nil {
+		tracer = opentracing.GlobalTracer()
+	}
+	return tracer
 }
 
 // NewChannel creates a new Channel.  The new channel can be used to send outbound requests
@@ -186,7 +192,7 @@ func NewChannel(serviceName string, opts *ChannelOptions) (*Channel, error) {
 			statsReporter:   statsReporter,
 			subChannels:     &subChannelMap{},
 			timeNow:         timeNow,
-			tracer: 		 opts.Tracer,
+			_tracer: 		 opts.Tracer,
 		},
 
 		connectionOptions: opts.DefaultConnectionOptions,
@@ -422,15 +428,6 @@ func (ch *Channel) Logger() Logger {
 // StatsReporter returns the stats reporter for this channel.
 func (ch *Channel) StatsReporter() StatsReporter {
 	return ch.statsReporter
-}
-
-// Tracer returns the OpenTracing Tracer for this channel.
-func (ch *Channel) Tracer() opentracing.Tracer {
-	tracer := ch.channelConnectionCommon.tracer
-	if tracer == nil {
-		tracer = opentracing.GlobalTracer()
-	}
-	return tracer
 }
 
 // StatsTags returns the common tags that should be used when reporting stats.

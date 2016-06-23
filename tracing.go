@@ -76,44 +76,44 @@ func (s Span) ParentID() uint64 { return s.parentID }
 func (s Span) SpanID() uint64 { return s.spanID }
 
 // EnableTracing controls whether tracing is enabled for this context
-func (s *Span) EnableTracing(enabled bool) {
-	if enabled {
-		s.flags |= tracingFlagEnabled
-	} else {
-		s.flags &= ^tracingFlagEnabled
-	}
-}
+//func (s *Span) EnableTracing(enabled bool) {
+//	if enabled {
+//		s.flags |= tracingFlagEnabled
+//	} else {
+//		s.flags &= ^tracingFlagEnabled
+//	}
+//}
 
 // TracingEnabled checks whether tracing is enabled for this context
-func (s Span) TracingEnabled() bool { return (s.flags & tracingFlagEnabled) == tracingFlagEnabled }
+//func (s Span) TracingEnabled() bool { return (s.flags & tracingFlagEnabled) == tracingFlagEnabled }
 
 // NewChildSpan begins a new child span in the provided Context
-func (s Span) NewChildSpan() *Span {
-	childSpan := &Span{
-		traceID:  s.traceID,
-		parentID: s.spanID,
-		flags:    s.flags,
-	}
-	if s.spanID == 0 {
-		childSpan.spanID = childSpan.traceID
-	} else {
-		childSpan.spanID = uint64(traceRng.Int63())
-	}
-	return childSpan
-}
+//func (s Span) NewChildSpan() *Span {
+//	childSpan := &Span{
+//		traceID:  s.traceID,
+//		parentID: s.spanID,
+//		flags:    s.flags,
+//	}
+//	if s.spanID == 0 {
+//		childSpan.spanID = childSpan.traceID
+//	} else {
+//		childSpan.spanID = uint64(traceRng.Int63())
+//	}
+//	return childSpan
+//}
 
-func newSpan(traceID, spanID, parentID uint64, tracingEnabled bool) *Span {
-	flags := byte(0)
-	if tracingEnabled {
-		flags = tracingFlagEnabled
-	}
-	return &Span{
-		traceID:  traceID,
-		spanID:   spanID,
-		parentID: parentID,
-		flags:    flags,
-	}
-}
+//func newSpan(traceID, spanID, parentID uint64, tracingEnabled bool) *Span {
+//	flags := byte(0)
+//	if tracingEnabled {
+//		flags = tracingFlagEnabled
+//	}
+//	return &Span{
+//		traceID:  traceID,
+//		spanID:   spanID,
+//		parentID: parentID,
+//		flags:    flags,
+//	}
+//}
 
 // initFromOpenTracing initializes Span fields from an OpenTracing Span,
 // assuming the tracing implementation supports Zipkin-style span IDs.
