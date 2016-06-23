@@ -75,9 +75,7 @@ func getTChannelParams(ctx context.Context) *tchannelCtxParams {
 
 // NewContext returns a new root context used to make TChannel requests.
 func NewContext(timeout time.Duration) (context.Context, context.CancelFunc) {
-	return NewContextBuilder(timeout).
-		setSpan(NewRootSpan()).
-		Build()
+	return NewContextBuilder(timeout).Build()
 }
 
 // WrapContextForTest returns a copy of the given Context that is associated with the call.

@@ -22,23 +22,16 @@ package tchannel
 
 import (
 	"fmt"
-	"math/rand"
 
-	"github.com/uber/tchannel-go/trand"
+	"github.com/opentracing/opentracing-go"
+
 	"github.com/uber/tchannel-go/typed"
 )
 
-const (
-	tracingFlagEnabled byte = 0x01
 
-	// The default tracing flags used when a new root span is created.
-	defaultTracingFlags = tracingFlagEnabled
-)
-
-// traceRng is a thread-safe random number generator for generating trace IDs.
-var traceRng = trand.NewSeeded()
-
-// Span represents Zipkin-style span.
+// Span is a wrapper around OpenTracing Span.
+// Currently it represents a Zipkin-style span by exposing methods like TraceID, SpanID.
+// TODO extend span serialization to support non-Zipkin-like tracing systems.
 type Span struct {
 	traceID  uint64
 	parentID uint64
@@ -68,10 +61,8 @@ func (s *Span) write(w *typed.WriteBuffer) error {
 
 // NewRootSpan creates a new top-level Span for a call-graph within the provided context
 func NewRootSpan() *Span {
-	return &Span{
-		traceID: uint64(traceRng.Int63()),
-		flags:   defaultTracingFlags,
-	}
+	// TODO make into a Tracer function
+	return nil
 }
 
 // TraceID returns the trace id for the entire call graph of requests. Established at the outermost
@@ -111,17 +102,6 @@ func (s Span) NewChildSpan() *Span {
 	return childSpan
 }
 
-func (s *Span) sampleRootSpan(sampleRate float64) {
-	// Sampling only affects root spans
-	if s.ParentID() != 0 {
-		return
-	}
-
-	if rand.Float64() > sampleRate {
-		s.EnableTracing(false)
-	}
-}
-
 func newSpan(traceID, spanID, parentID uint64, tracingEnabled bool) *Span {
 	flags := byte(0)
 	if tracingEnabled {
@@ -133,4 +113,10 @@ func newSpan(traceID, spanID, parentID uint64, tracingEnabled bool) *Span {
 		parentID: parentID,
 		flags:    flags,
 	}
+}
+
+// initFromOpenTracing initializes Span fields from an OpenTracing Span,
+// assuming the tracing implementation supports Zipkin-style span IDs.
+func (s Span) initFromOpenTracing(span opentracing.Span) {
+	// TODO
 }

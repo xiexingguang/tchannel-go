@@ -106,6 +106,10 @@ func (c *Client) Call(ctx Context, method string, arg, resp interface{}) error {
 		isOK        bool
 	)
 
+	// TODO maybe start child span here, because we already need to write Tracing in startCall
+	// TODO or maybe start child span on every retry
+	// TODO on the other hand, may push span creation to outbound.startCall()
+
 	err := c.ch.RunWithRetry(ctx, func(ctx context.Context, rs *tchannel.RequestState) error {
 		respHeaders, respErr, errAt, isOK = nil, nil, "", false
 

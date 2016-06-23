@@ -33,6 +33,7 @@ import (
 	"github.com/uber/tchannel-go/tnet"
 
 	"golang.org/x/net/context"
+	"github.com/opentracing/opentracing-go"
 )
 
 var (
@@ -46,9 +47,6 @@ var (
 
 const (
 	ephemeralHostPort = "0.0.0.0:0"
-
-	// DefaultTraceSampleRate is the default sampling rate for traces.
-	DefaultTraceSampleRate = 1.0
 )
 
 // TraceReporterFactory is the interface of the method to generate TraceReporter instance.
@@ -78,15 +76,9 @@ type ChannelOptions struct {
 	// Note: This is not a stable part of the API and may change.
 	TimeNow func() time.Time
 
-	// Trace reporter to use for this channel.
-	TraceReporter TraceReporter
-
-	// Trace reporter factory to generate trace reporter instance.
-	TraceReporterFactory TraceReporterFactory
-
-	// TraceSampleRate is the rate of requests to sample, and should be in the range [0, 1].
-	// If this value is not set, then DefaultTraceSampleRate is used.
-	TraceSampleRate *float64
+	// Tracer is an OpenTracing Tracer used to manage distributed tracing spans.
+	// If not set, opentracing.GlobalTracer() is used.
+	Tracer opentracing.Tracer
 }
 
 // ChannelState is the state of a channel.
@@ -143,10 +135,9 @@ type channelConnectionCommon struct {
 	log             Logger
 	relayStats      relay.Stats
 	statsReporter   StatsReporter
-	traceReporter   TraceReporter
+	tracer          opentracing.Tracer
 	subChannels     *subChannelMap
 	timeNow         func() time.Time
-	traceSampleRate float64
 }
 
 // NewChannel creates a new Channel.  The new channel can be used to send outbound requests
@@ -181,11 +172,6 @@ func NewChannel(serviceName string, opts *ChannelOptions) (*Channel, error) {
 		timeNow = time.Now
 	}
 
-	traceSampleRate := DefaultTraceSampleRate
-	if opts.TraceSampleRate != nil {
-		traceSampleRate = *opts.TraceSampleRate
-	}
-
 	relayStats := relay.NewNoopStats()
 	if opts.RelayStats != nil {
 		relayStats = opts.RelayStats
@@ -200,7 +186,7 @@ func NewChannel(serviceName string, opts *ChannelOptions) (*Channel, error) {
 			statsReporter:   statsReporter,
 			subChannels:     &subChannelMap{},
 			timeNow:         timeNow,
-			traceSampleRate: traceSampleRate,
+			tracer: 		 opts.Tracer,
 		},
 
 		connectionOptions: opts.DefaultConnectionOptions,
@@ -218,16 +204,6 @@ func NewChannel(serviceName string, opts *ChannelOptions) (*Channel, error) {
 	ch.mutable.state = ChannelClient
 	ch.mutable.conns = make(map[uint32]*Connection)
 	ch.createCommonStats()
-
-	// TraceReporter may use the channel, so we must initialize it once the channel is ready.
-	traceReporter := opts.TraceReporter
-	if opts.TraceReporterFactory != nil {
-		traceReporter = opts.TraceReporterFactory(ch)
-	}
-	if traceReporter == nil {
-		traceReporter = NullReporter
-	}
-	ch.traceReporter = traceReporter
 
 	ch.registerInternal()
 
@@ -448,9 +424,13 @@ func (ch *Channel) StatsReporter() StatsReporter {
 	return ch.statsReporter
 }
 
-// TraceReporter returns the trace reporter for this channel.
-func (ch *Channel) TraceReporter() TraceReporter {
-	return ch.traceReporter
+// Tracer returns the OpenTracing Tracer for this channel.
+func (ch *Channel) Tracer() opentracing.Tracer {
+	tracer := ch.channelConnectionCommon.tracer
+	if tracer == nil {
+		tracer = opentracing.GlobalTracer()
+	}
+	return tracer
 }
 
 // StatsTags returns the common tags that should be used when reporting stats.
