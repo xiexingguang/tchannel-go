@@ -26,6 +26,7 @@ import (
 	"github.com/uber/tchannel-go"
 
 	"golang.org/x/net/context"
+	"github.com/opentracing/opentracing-go"
 )
 
 // ErrApplication is an application error which contains the object returned from the other side.
@@ -59,7 +60,24 @@ func NewClient(ch *tchannel.Channel, targetService string, opts *ClientOptions) 
 	return client
 }
 
+func injectTracing(span opentracing.Span, headers interface{}) interface{} {
+	if span == nil {
+		return headers
+	}
+	if mapHeaders, ok := headers.(map[string]string); ok {
+		if mapHeaders == nil {
+			mapHeaders = make(map[string]string)
+		}
+		carrier := opentracing.TextMapCarrier(mapHeaders)
+		if err := span.Tracer().Inject(span, opentracing.TextMap, carrier); err == nil {
+			return mapHeaders
+		}
+	}
+	return headers
+}
+
 func makeCall(call *tchannel.OutboundCall, headers, arg3In, respHeaders, arg3Out, errorOut interface{}) (bool, string, error) {
+	headers = injectTracing(call.Response().Span, headers)
 	if err := tchannel.NewArgWriter(call.Arg2Writer()).WriteJSON(headers); err != nil {
 		return false, "arg2 write failed", err
 	}

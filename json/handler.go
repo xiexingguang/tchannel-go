@@ -27,6 +27,9 @@ import (
 	"github.com/uber/tchannel-go"
 
 	"golang.org/x/net/context"
+	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
+	"log"
 )
 
 var (
@@ -74,18 +77,24 @@ func verifyHandler(t reflect.Type) error {
 }
 
 type handler struct {
+	method   string
 	handler  reflect.Value
 	argType  reflect.Type
 	isArgMap bool
+	tracer   func() opentracing.Tracer
 }
 
-func toHandler(f interface{}) (*handler, error) {
+func toHandler(method string, f interface{}) (*handler, error) {
 	hV := reflect.ValueOf(f)
 	if err := verifyHandler(hV.Type()); err != nil {
 		return nil, err
 	}
 	argType := hV.Type().In(1)
-	return &handler{hV, argType, argType.Kind() == reflect.Map}, nil
+	return &handler{
+		method: method,
+		handler: hV,
+		argType: argType,
+		isArgMap: argType.Kind() == reflect.Map}, nil
 }
 
 // Register registers the specified methods specified as a map from method name to the
@@ -107,15 +116,32 @@ func Register(registrar tchannel.Registrar, funcs Handlers, onError func(context
 	})
 
 	for m, f := range funcs {
-		h, err := toHandler(f)
+		h, err := toHandler(m, f)
 		if err != nil {
 			return fmt.Errorf("%v cannot be used as a handler: %v", m, err)
 		}
+		h.tracer = registrar.Tracer
 		handlers[m] = h
 		registrar.Register(handler, m)
 	}
 
 	return nil
+}
+
+func (h *handler) extractTracing(ctx context.Context, headers map[string]string) context.Context {
+	var span opentracing.Span
+	if headers != nil {
+		carrier := opentracing.TextMapCarrier(headers)
+		if sp, _ := h.tracer().Join(h.method, opentracing.TextMap, carrier); sp != nil {
+			span = sp
+		}
+	}
+	if span == nil {
+		span = h.tracer().StartSpan(h.method)
+	}
+	ext.SpanKind.Set(span, ext.SpanKindRPCServer)
+	log.Printf("json/handler.go: inbound span %+v", span)
+	return opentracing.ContextWithSpan(ctx, span)
 }
 
 // Handle deserializes the JSON arguments and calls the underlying handler.
@@ -124,6 +150,7 @@ func (h *handler) Handle(tctx context.Context, call *tchannel.InboundCall) error
 	if err := tchannel.NewArgReader(call.Arg2Reader()).ReadJSON(&headers); err != nil {
 		return fmt.Errorf("arg2 read failed: %v", err)
 	}
+	tctx = h.extractTracing(tctx, headers)
 	ctx := WithHeaders(tctx, headers)
 
 	var arg3 reflect.Value

@@ -20,101 +20,135 @@
 
 package tchannel_test
 
-//import (
-//	"fmt"
-//	"math/rand"
-//	"testing"
-//	"time"
-//
-//	. "github.com/uber/tchannel-go"
-//
-//	"github.com/uber/tchannel-go/json"
-//	"github.com/uber/tchannel-go/raw"
-//	"github.com/uber/tchannel-go/testutils"
-//
-//	"github.com/stretchr/testify/assert"
-//	"github.com/stretchr/testify/require"
-//	"golang.org/x/net/context"
-//)
-//
-//type TracingRequest struct {
-//	ForwardCount int
-//}
-//
-//type TracingResponse struct {
-//	TraceID        uint64
-//	SpanID         uint64
-//	ParentID       uint64
-//	TracingEnabled bool
-//	Child          *TracingResponse
-//}
-//
-//type traceHandler struct {
-//	ch *Channel
-//	t  *testing.T
-//}
-//
-//func (h *traceHandler) call(ctx json.Context, req *TracingRequest) (*TracingResponse, error) {
-//	span := CurrentSpan(ctx)
-//	if span == nil {
-//		return nil, fmt.Errorf("tracing not found")
-//	}
-//
-//	var childResp *TracingResponse
-//	if req.ForwardCount > 0 {
-//		sc := h.ch.Peers().GetOrAdd(h.ch.PeerInfo().HostPort)
-//		childResp = new(TracingResponse)
-//		require.NoError(h.t, json.CallPeer(ctx, sc, h.ch.PeerInfo().ServiceName, "call", nil, childResp))
-//	}
-//
-//	return &TracingResponse{
-//		TraceID:        span.TraceID(),
-//		SpanID:         span.SpanID(),
-//		ParentID:       span.ParentID(),
-//		TracingEnabled: span.TracingEnabled(),
-//		Child:          childResp,
-//	}, nil
-//}
-//
-//func (h *traceHandler) onError(ctx context.Context, err error) {
-//	h.t.Errorf("onError %v", err)
-//}
-//
-//func TestTracingPropagates(t *testing.T) {
-//	WithVerifiedServer(t, nil, func(ch *Channel, hostPort string) {
-//		handler := &traceHandler{t: t, ch: ch}
-//		json.Register(ch, json.Handlers{
-//			"call": handler.call,
-//		}, handler.onError)
-//
-//		ctx, cancel := json.NewContext(time.Second)
-//		defer cancel()
-//
-//		peer := ch.Peers().GetOrAdd(ch.PeerInfo().HostPort)
-//		var response TracingResponse
-//		require.NoError(t, json.CallPeer(ctx, peer, ch.PeerInfo().ServiceName, "call", &TracingRequest{
-//			ForwardCount: 1,
-//		}, &response))
-//
-//		clientSpan := CurrentSpan(ctx)
-//		require.NotNil(t, clientSpan)
-//		assert.Equal(t, uint64(0), clientSpan.ParentID())
-//		assert.NotEqual(t, uint64(0), clientSpan.TraceID())
-//		assert.True(t, clientSpan.TracingEnabled(), "Tracing should be enabled")
-//		assert.Equal(t, clientSpan.TraceID(), response.TraceID)
-//		assert.Equal(t, clientSpan.SpanID(), response.ParentID)
-//		assert.True(t, response.TracingEnabled, "Tracing should be enabled")
-//		assert.Equal(t, response.TraceID, response.SpanID, "traceID = spanID for root span")
-//
-//		nestedResponse := response.Child
-//		require.NotNil(t, nestedResponse)
-//		assert.Equal(t, clientSpan.TraceID(), nestedResponse.TraceID)
-//		assert.Equal(t, response.SpanID, nestedResponse.ParentID)
-//		assert.True(t, response.TracingEnabled, "Tracing should be enabled")
-//		assert.NotEqual(t, response.SpanID, nestedResponse.SpanID)
-//	})
-//}
-//
+import (
+	"fmt"
+	"testing"
+	"time"
+
+	. "github.com/uber/tchannel-go"
+
+	"github.com/uber/tchannel-go/json"
+	//"github.com/uber/tchannel-go/raw"
+	//"github.com/uber/tchannel-go/testutils"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/net/context"
+	"github.com/uber/jaeger-client-go"
+	"github.com/uber/tchannel-go/testutils"
+	"github.com/opentracing/opentracing-go"
+)
+
+type TracingRequest struct {
+	ForwardCount int
+}
+
+type TracingResponse struct {
+	TraceID        uint64
+	SpanID         uint64
+	ParentID       uint64
+	TracingEnabled bool
+	Child          *TracingResponse
+}
+
+type traceHandler struct {
+	ch *Channel
+	t  *testing.T
+}
+
+func (h *traceHandler) call(ctx json.Context, req *TracingRequest) (*TracingResponse, error) {
+	span := CurrentSpan(ctx)
+	if span == nil {
+		return nil, fmt.Errorf("tracing not found")
+	}
+
+	var childResp *TracingResponse
+	if req.ForwardCount > 0 {
+		sc := h.ch.Peers().GetOrAdd(h.ch.PeerInfo().HostPort)
+		childResp = new(TracingResponse)
+		require.NoError(h.t, json.CallPeer(ctx, sc, h.ch.PeerInfo().ServiceName, "call", nil, childResp))
+	}
+
+	return &TracingResponse{
+		TraceID:        span.TraceID(),
+		SpanID:         span.SpanID(),
+		ParentID:       span.ParentID(),
+		TracingEnabled: span.Flags() & 1 == 1,
+		Child:          childResp,
+	}, nil
+}
+
+func (h *traceHandler) onError(ctx context.Context, err error) {
+	h.t.Errorf("onError %v", err)
+}
+
+func TestTracingPropagates(t *testing.T) {
+	tracer, tCloser := jaeger.NewTracer(testutils.DefaultServerName,
+		jaeger.NewConstSampler(true), jaeger.NewLoggingReporter(jaeger.StdLogger))
+	defer tCloser.Close()
+
+	opts := &testutils.ChannelOpts{}
+	opts.Tracer = tracer
+
+	WithVerifiedServer(t, opts, func(ch *Channel, hostPort string) {
+		handler := &traceHandler{t: t, ch: ch}
+		json.Register(ch, json.Handlers{
+			"call": handler.call,
+		}, handler.onError)
+
+		ctx, cancel := json.NewContext(time.Second)
+		defer cancel()
+
+		span := tracer.StartSpan("client")
+		ctx2 := opentracing.ContextWithSpan(ctx, span)
+		ctx = json.Wrap(ctx2)
+
+		peer := ch.Peers().GetOrAdd(ch.PeerInfo().HostPort)
+		var response TracingResponse
+		require.NoError(t, json.CallPeer(ctx, peer, ch.PeerInfo().ServiceName, "call", &TracingRequest{
+			ForwardCount: 1,
+		}, &response))
+
+		span.Finish()
+
+		clientSpan := CurrentSpan(ctx)
+		require.NotNil(t, clientSpan)
+		assert.NotEqual(t, uint64(0), clientSpan.ParentID())
+		assert.NotEqual(t, uint64(0), clientSpan.TraceID())
+		//assert.True(t, clientSpan.TracingEnabled(), "Tracing should be enabled")
+		assert.Equal(t, clientSpan.TraceID(), response.TraceID)
+		assert.Equal(t, clientSpan.SpanID(), response.ParentID)
+		// assert.True(t, response.TracingEnabled, "Tracing should be enabled")
+		assert.Equal(t, response.TraceID, response.SpanID, "traceID = spanID for root span")
+
+		nestedResponse := response.Child
+		require.NotNil(t, nestedResponse)
+		assert.Equal(t, clientSpan.TraceID(), nestedResponse.TraceID)
+		assert.Equal(t, response.SpanID, nestedResponse.ParentID)
+		// assert.True(t, response.TracingEnabled, "Tracing should be enabled")
+		assert.NotEqual(t, response.SpanID, nestedResponse.SpanID)
+	})
+}
+
+func TestTracingInjectorExtractor(t *testing.T) {
+	reporter := jaeger.NewInMemoryReporter()
+	tracer, tCloser := jaeger.NewTracer(testutils.DefaultServerName,
+		jaeger.NewConstSampler(true), reporter)
+	defer tCloser.Close()
+
+	sp := tracer.StartSpan("x")
+	tsp := &Span{}
+	err := tracer.Inject(sp, ZipkinSpanFormat, tsp)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, uint64(0), tsp.TraceID())
+	assert.NotEqual(t, uint64(0), tsp.SpanID())
+
+	sp2, err := tracer.Join("z", ZipkinSpanFormat, tsp)
+	require.NoError(t, err)
+	require.NotNil(t, sp2)
+}
+
 //func TestTraceReportingEnabled(t *testing.T) {
 //	initialTime := time.Date(2015, 2, 1, 10, 10, 0, 0, time.UTC)
 //

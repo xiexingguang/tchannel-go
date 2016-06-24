@@ -26,11 +26,13 @@ import (
 	"github.com/opentracing/opentracing-go"
 
 	"github.com/uber/tchannel-go/typed"
+	"golang.org/x/net/context"
 )
 
+const ZipkinSpanFormat string = "zipkin-span-format"
 
-// Span is a wrapper around OpenTracing Span.
-// Currently it represents a Zipkin-style span by exposing methods like TraceID, SpanID.
+// Span is an internal representation of Zipkin-compatible OpenTracing Span.
+// It can be used as OpenTracing inject/extract Carrier
 // TODO extend span serialization to support non-Zipkin-like tracing systems.
 type Span struct {
 	traceID  uint64
@@ -59,14 +61,8 @@ func (s *Span) write(w *typed.WriteBuffer) error {
 	return w.Err()
 }
 
-// NewRootSpan creates a new top-level Span for a call-graph within the provided context
-func NewRootSpan() *Span {
-	// TODO make into a Tracer function
-	return nil
-}
-
-// TraceID returns the trace id for the entire call graph of requests. Established at the outermost
-// edge service and propagated through all calls
+// TraceID returns the trace id for the entire call graph of requests. Established
+// at the outermost edge service and propagated through all calls
 func (s Span) TraceID() uint64 { return s.traceID }
 
 // ParentID returns the id of the parent span in this call graph
@@ -74,6 +70,14 @@ func (s Span) ParentID() uint64 { return s.parentID }
 
 // SpanID returns the id of this specific RPC
 func (s Span) SpanID() uint64 { return s.spanID }
+
+// Flags returns flags bitmap. Interpretation of the bits is up to the tracing system.
+func (s Span) Flags() byte { return s.flags }
+
+func (s *Span) SetTraceID(traceID uint64) { s.traceID = traceID }
+func (s *Span) SetSpanID(spanID uint64) { s.spanID = spanID }
+func (s *Span) SetParentID(parentID uint64) { s.parentID = parentID }
+func (s *Span) SetFlags(flags byte) { s.flags = flags }
 
 // EnableTracing controls whether tracing is enabled for this context
 //func (s *Span) EnableTracing(enabled bool) {
@@ -115,8 +119,17 @@ func (s Span) SpanID() uint64 { return s.spanID }
 //	}
 //}
 
+func CurrentSpan(ctx context.Context) *Span {
+	if sp := opentracing.SpanFromContext(ctx); sp != nil {
+		span := &Span{}
+		span.initFromOpenTracing(sp)
+		return span
+	}
+	return nil
+}
+
 // initFromOpenTracing initializes Span fields from an OpenTracing Span,
 // assuming the tracing implementation supports Zipkin-style span IDs.
-func (s Span) initFromOpenTracing(span opentracing.Span) {
-	// TODO
+func (s *Span) initFromOpenTracing(span opentracing.Span) {
+	span.Tracer().Inject(span, ZipkinSpanFormat, s)
 }

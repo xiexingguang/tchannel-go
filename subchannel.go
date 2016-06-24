@@ -25,6 +25,7 @@ import (
 	"sync"
 
 	"golang.org/x/net/context"
+	"github.com/opentracing/opentracing-go"
 )
 
 // SubChannelOption are used to set options for subchannels.
@@ -164,6 +165,11 @@ func (c *SubChannel) StatsTags() map[string]string {
 	tags := c.topChannel.StatsTags()
 	tags["subchannel"] = c.serviceName
 	return tags
+}
+
+// Tracer returns OpenTracing Tracer from the top channel.
+func (c *SubChannel) Tracer() opentracing.Tracer {
+	return c.topChannel.Tracer()
 }
 
 // Register a new subchannel for the given serviceName
