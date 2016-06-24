@@ -24,15 +24,19 @@ import (
 	"fmt"
 
 	"github.com/opentracing/opentracing-go"
+	"golang.org/x/net/context"
 
 	"github.com/uber/tchannel-go/typed"
-	"golang.org/x/net/context"
 )
 
+// ZipkinSpanFormat defines a name for OpenTracing carrier format that tracer may support.
+// It is used to extract zipkin-style trace/span IDs from the OpenTracing Span, which are
+// otherwise not exposed explicitly.
 const ZipkinSpanFormat string = "zipkin-span-format"
 
 // Span is an internal representation of Zipkin-compatible OpenTracing Span.
-// It can be used as OpenTracing inject/extract Carrier
+// It can be used as OpenTracing inject/extract Carrier.
+//
 // TODO extend span serialization to support non-Zipkin-like tracing systems.
 type Span struct {
 	traceID  uint64
@@ -74,51 +78,20 @@ func (s Span) SpanID() uint64 { return s.spanID }
 // Flags returns flags bitmap. Interpretation of the bits is up to the tracing system.
 func (s Span) Flags() byte { return s.flags }
 
+// SetTraceID sets traceID
 func (s *Span) SetTraceID(traceID uint64) { s.traceID = traceID }
+
+// SetSpanID sets spanID
 func (s *Span) SetSpanID(spanID uint64) { s.spanID = spanID }
+
+// SetParentID sets parentID
 func (s *Span) SetParentID(parentID uint64) { s.parentID = parentID }
+
+// SetFlags sets flags
 func (s *Span) SetFlags(flags byte) { s.flags = flags }
 
-// EnableTracing controls whether tracing is enabled for this context
-//func (s *Span) EnableTracing(enabled bool) {
-//	if enabled {
-//		s.flags |= tracingFlagEnabled
-//	} else {
-//		s.flags &= ^tracingFlagEnabled
-//	}
-//}
-
-// TracingEnabled checks whether tracing is enabled for this context
-//func (s Span) TracingEnabled() bool { return (s.flags & tracingFlagEnabled) == tracingFlagEnabled }
-
-// NewChildSpan begins a new child span in the provided Context
-//func (s Span) NewChildSpan() *Span {
-//	childSpan := &Span{
-//		traceID:  s.traceID,
-//		parentID: s.spanID,
-//		flags:    s.flags,
-//	}
-//	if s.spanID == 0 {
-//		childSpan.spanID = childSpan.traceID
-//	} else {
-//		childSpan.spanID = uint64(traceRng.Int63())
-//	}
-//	return childSpan
-//}
-
-//func newSpan(traceID, spanID, parentID uint64, tracingEnabled bool) *Span {
-//	flags := byte(0)
-//	if tracingEnabled {
-//		flags = tracingFlagEnabled
-//	}
-//	return &Span{
-//		traceID:  traceID,
-//		spanID:   spanID,
-//		parentID: parentID,
-//		flags:    flags,
-//	}
-//}
-
+// CurrentSpan extracts OpenTracing Span from the Context, and if found tries to
+// extract zipkin-style trace/span IDs from it using ZipkinSpanFormat carrier.
 func CurrentSpan(ctx context.Context) *Span {
 	if sp := opentracing.SpanFromContext(ctx); sp != nil {
 		span := &Span{}

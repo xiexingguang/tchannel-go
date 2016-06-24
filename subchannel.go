@@ -24,8 +24,8 @@ import (
 	"fmt"
 	"sync"
 
-	"golang.org/x/net/context"
 	"github.com/opentracing/opentracing-go"
+	"golang.org/x/net/context"
 )
 
 // SubChannelOption are used to set options for subchannels.

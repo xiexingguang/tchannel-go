@@ -25,8 +25,9 @@ import (
 	"fmt"
 	"time"
 
-	"golang.org/x/net/context"
 	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
+	"golang.org/x/net/context"
 )
 
 var errInboundRequestAlreadyActive = errors.New("inbound request is already active; possible duplicate client id")
@@ -92,7 +93,8 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	response.calledAt = now
 	response.timeNow = c.timeNow
 
-	// TODO handle tracing
+	// TODO because tracing is propagated via app headers, we cannot start a span here
+	// TODO the tags from below code should be set to span elsewhere
 	//response.Annotations = Annotations{
 	//	reporter: c.traceReporter,
 	//	timeNow:  c.timeNow,
@@ -115,7 +117,6 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	response.mex = mex
 	response.conn = c
 	response.cancel = cancel
-	// response.span = callReq.Tracing
 	response.log = c.log.WithFields(LogField{"In-Response", callReq.ID()})
 	response.contents = newFragmentingWriter(response.log, response, initialFragment.checksumType.New())
 	response.headers = transportHeaders{}
@@ -137,7 +138,6 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	call.initialFragment = initialFragment
 	call.serviceName = string(callReq.Service)
 	call.headers = callReq.Headers
-	call.span = callReq.Tracing
 	call.response = response
 	call.log = c.log.WithFields(LogField{"In-Call", callReq.ID()})
 	call.messageForFragment = func(initial bool) message { return new(callReqContinue) }
@@ -223,7 +223,6 @@ type InboundCall struct {
 	method          []byte
 	methodString    string
 	headers         transportHeaders
-	span            Span
 	statsReporter   StatsReporter
 	commonStatsTags map[string]string
 }
@@ -346,14 +345,21 @@ func (response *InboundCallResponse) SendSystemError(err error) error {
 	response.doneSending()
 	response.call.releasePreviousFragment()
 
-	span := response.call.span
-	//span := CurrentSpan(response.mex.ctx)
-	//if span == nil {
-	//	response.log.Error("Missing span when sending system error")
-	//	span = &Span{}
-	//}
+	if span := response.span; span != nil {
+		ext.Error.Set(span, true)
+		span.LogEventWithPayload("error", err.Error())
+		span.Finish()
+	}
 
-	return response.conn.SendSystemError(response.mex.msgID, span, err)
+	span := CurrentSpan(response.mex.ctx)
+	if span == nil {
+		// TODO this breaks the tests. Since span generation is delegated to OpenTracing now,
+		// if no tracer is configured it's possible to have no span, and imo should not be an error
+		// response.log.Error("Missing span when sending system error")
+		span = &Span{}
+	}
+
+	return response.conn.SendSystemError(response.mex.msgID, *span, err)
 }
 
 // SetApplicationError marks the response as being an application error.  This method can

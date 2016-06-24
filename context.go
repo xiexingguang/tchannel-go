@@ -36,10 +36,11 @@ const (
 )
 
 type tchannelCtxParams struct {
-	call           IncomingCall
-	options        *CallOptions
-	retryOptions   *RetryOptions
-	connectTimeout time.Duration
+	call            IncomingCall
+	options         *CallOptions
+	retryOptions    *RetryOptions
+	connectTimeout  time.Duration
+	tracingDisabled bool
 }
 
 // IncomingCall exposes properties for incoming calls through the context.
@@ -100,17 +101,16 @@ func CurrentCall(ctx context.Context) IncomingCall {
 	return nil
 }
 
-//// CurrentSpan returns the Span value for the provided Context
-//func CurrentSpan(ctx context.Context) *Span {
-//	if params := getTChannelParams(ctx); params != nil {
-//		return params.span
-//	}
-//	return nil
-//}
-
 func currentCallOptions(ctx context.Context) *CallOptions {
 	if params := getTChannelParams(ctx); params != nil {
 		return params.options
 	}
 	return nil
+}
+
+func isTracingDisabled(ctx context.Context) bool {
+	if params := getTChannelParams(ctx); params != nil {
+		return params.tracingDisabled
+	}
+	return false
 }

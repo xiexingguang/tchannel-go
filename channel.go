@@ -32,8 +32,8 @@ import (
 	"github.com/uber/tchannel-go/relay"
 	"github.com/uber/tchannel-go/tnet"
 
-	"golang.org/x/net/context"
 	"github.com/opentracing/opentracing-go"
+	"golang.org/x/net/context"
 )
 
 var (
@@ -129,17 +129,18 @@ type Channel struct {
 // channelConnectionCommon is the list of common objects that both use
 // and can be copied directly from the channel to the connection.
 type channelConnectionCommon struct {
-	log             Logger
-	relayStats      relay.Stats
-	statsReporter   StatsReporter
-	_tracer          opentracing.Tracer
-	subChannels     *subChannelMap
-	timeNow         func() time.Time
+	log           Logger
+	relayStats    relay.Stats
+	statsReporter StatsReporter
+	tracer        opentracing.Tracer
+	subChannels   *subChannelMap
+	timeNow       func() time.Time
 }
 
 // Tracer returns the OpenTracing Tracer for this channel.
+// If no tracer was provided in the configuration, returns opentracing.GlobalTracer().
 func (ccc channelConnectionCommon) Tracer() opentracing.Tracer {
-	tracer := ccc._tracer
+	tracer := ccc.tracer
 	if tracer == nil {
 		tracer = opentracing.GlobalTracer()
 	}
@@ -188,11 +189,11 @@ func NewChannel(serviceName string, opts *ChannelOptions) (*Channel, error) {
 			log: logger.WithFields(
 				LogField{"service", serviceName},
 				LogField{"process", processName}),
-			relayStats:      relayStats,
-			statsReporter:   statsReporter,
-			subChannels:     &subChannelMap{},
-			timeNow:         timeNow,
-			_tracer: 		 opts.Tracer,
+			relayStats:    relayStats,
+			statsReporter: statsReporter,
+			subChannels:   &subChannelMap{},
+			timeNow:       timeNow,
+			tracer:        opts.Tracer,
 		},
 
 		connectionOptions: opts.DefaultConnectionOptions,

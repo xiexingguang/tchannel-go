@@ -26,10 +26,9 @@ import (
 
 	"github.com/uber/tchannel-go"
 
-	"golang.org/x/net/context"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
-	"log"
+	"golang.org/x/net/context"
 )
 
 var (
@@ -91,9 +90,9 @@ func toHandler(method string, f interface{}) (*handler, error) {
 	}
 	argType := hV.Type().In(1)
 	return &handler{
-		method: method,
-		handler: hV,
-		argType: argType,
+		method:   method,
+		handler:  hV,
+		argType:  argType,
 		isArgMap: argType.Kind() == reflect.Map}, nil
 }
 
@@ -140,7 +139,7 @@ func (h *handler) extractTracing(ctx context.Context, headers map[string]string)
 		span = h.tracer().StartSpan(h.method)
 	}
 	ext.SpanKind.Set(span, ext.SpanKindRPCServer)
-	log.Printf("json/handler.go: inbound span %+v", span)
+	// TODO set other tags formerly in 'inbound.go', like "as", peer, etc.
 	return opentracing.ContextWithSpan(ctx, span)
 }
 

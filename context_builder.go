@@ -49,7 +49,6 @@ type ContextBuilder struct {
 
 	// ParentContext to build the new context from. If empty, context.Background() is used.
 	// The new (child) context inherits a number of properties from the parent context:
-	//   - the tracing Span, unless replaced via SetExternalSpan()
 	//   - context fields, accessible via `ctx.Value(key)`
 	//   - headers if parent is a ContextWithHeaders, unless replaced via SetHeaders()
 	ParentContext context.Context
@@ -189,15 +188,12 @@ func (cb *ContextBuilder) getHeaders() map[string]string {
 
 // Build returns a ContextWithHeaders that can be used to make calls.
 func (cb *ContextBuilder) Build() (ContextWithHeaders, context.CancelFunc) {
-	if cb.TracingDisabled {
-		// span.EnableTracing(false)
-	}
-
 	params := &tchannelCtxParams{
-		options:        cb.CallOptions,
-		call:           cb.incomingCall,
-		retryOptions:   cb.RetryOptions,
-		connectTimeout: cb.ConnectTimeout,
+		options:         cb.CallOptions,
+		call:            cb.incomingCall,
+		retryOptions:    cb.RetryOptions,
+		connectTimeout:  cb.ConnectTimeout,
+		tracingDisabled: cb.TracingDisabled,
 	}
 
 	parent := cb.ParentContext

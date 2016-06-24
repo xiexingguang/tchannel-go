@@ -22,13 +22,13 @@ package tchannel
 
 import (
 	"fmt"
-	"time"
 	"log"
+	"time"
 
-	"github.com/uber/tchannel-go/typed"
-	"golang.org/x/net/context"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
+	"github.com/uber/tchannel-go/typed"
+	"golang.org/x/net/context"
 )
 
 // maxMethodSize is the maximum size of arg1.
@@ -119,14 +119,17 @@ func (c *Connection) beginCall(ctx context.Context, serviceName, methodName stri
 	log.Printf("outbound.go: parent span %+v", parentSpan)
 	span := c.Tracer().StartSpanWithOptions(opentracing.StartSpanOptions{
 		OperationName: serviceName + "::" + methodName,
-		Parent: parentSpan,
-		StartTime: now,
+		Parent:        parentSpan,
+		StartTime:     now,
 	})
 	log.Printf("outbound.go: child span %+v", span)
 	ext.SpanKind.Set(span, ext.SpanKindRPCClient)
 	ext.PeerService.Set(span, serviceName)
 	ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
 	span.SetTag("as", call.callReq.Headers[ArgScheme])
+	if isTracingDisabled(ctx) {
+		ext.SamplingPriority.Set(span, 0)
+	}
 
 	call.callReq.Tracing.initFromOpenTracing(span)
 	response.Span = span
