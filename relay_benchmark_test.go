@@ -183,6 +183,7 @@ func BenchmarkRelayNoLatencies(b *testing.B) {
 		benchmark.WithExternalProcess(),
 		benchmark.WithNoLibrary(),
 		benchmark.WithNumClients(10),
+		benchmark.WithRequestSize(4*1024),
 		benchmark.WithNoChecking(),
 		benchmark.WithNoDurations(),
 		benchmark.WithTimeout(10*time.Second),
