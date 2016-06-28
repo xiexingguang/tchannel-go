@@ -21,6 +21,7 @@
 package tchannel_test
 
 import (
+	gojson "encoding/json"
 	"fmt"
 	"log"
 	"testing"
@@ -28,8 +29,10 @@ import (
 
 	. "github.com/uber/tchannel-go"
 	"github.com/uber/tchannel-go/json"
+	gen "github.com/uber/tchannel-go/thrift/gen-go/test"
 	//"github.com/uber/tchannel-go/raw"
 	"github.com/uber/tchannel-go/testutils"
+	"github.com/uber/tchannel-go/thrift"
 
 	"github.com/opentracing/basictracer-go"
 	"github.com/opentracing/opentracing-go"
@@ -54,8 +57,9 @@ type TracingResponse struct {
 }
 
 type traceHandler struct {
-	ch *Channel
-	t  *testing.T
+	ch           *Channel
+	t            *testing.T
+	thriftClient gen.TChanSimpleService
 }
 
 const (
@@ -63,7 +67,23 @@ const (
 	baggageValue = "suitcase"
 )
 
-func (h *traceHandler) call(ctx json.Context, req *TracingRequest) (*TracingResponse, error) {
+func (h *traceHandler) callJSON(ctx json.Context, req *TracingRequest) (*TracingResponse, error) {
+	return h.handleCall(ctx, req, func(ctx context.Context) *TracingResponse {
+		jctx := ctx.(json.Context)
+		var childResp *TracingResponse
+		sc := h.ch.Peers().GetOrAdd(h.ch.PeerInfo().HostPort)
+		childResp = new(TracingResponse)
+		require.NoError(h.t, json.CallPeer(jctx, sc, h.ch.PeerInfo().ServiceName, "call", nil, childResp))
+		return childResp
+	})
+}
+
+// handleCall is used by handlers from different encodings as the main business logic
+func (h *traceHandler) handleCall(
+	ctx context.Context,
+	req *TracingRequest,
+	downstream func(ctx context.Context) *TracingResponse,
+) (*TracingResponse, error) {
 	tchanSpan := CurrentSpan(ctx)
 	if tchanSpan == nil {
 		return nil, fmt.Errorf("tracing not found")
@@ -75,9 +95,7 @@ func (h *traceHandler) call(ctx json.Context, req *TracingRequest) (*TracingResp
 
 	var childResp *TracingResponse
 	if req.ForwardCount > 0 {
-		sc := h.ch.Peers().GetOrAdd(h.ch.PeerInfo().HostPort)
-		childResp = new(TracingResponse)
-		require.NoError(h.t, json.CallPeer(ctx, sc, h.ch.PeerInfo().ServiceName, "call", nil, childResp))
+		childResp = downstream(ctx)
 	}
 
 	return &TracingResponse{
@@ -92,6 +110,33 @@ func (h *traceHandler) call(ctx json.Context, req *TracingRequest) (*TracingResp
 
 func (h *traceHandler) onError(ctx context.Context, err error) {
 	h.t.Errorf("onError %v", err)
+}
+
+// Call implements Thrift service endpoint
+func (h *traceHandler) Call(ctx thrift.Context, arg *gen.Data) (*gen.Data, error) {
+	log.Printf("tchannel handler processing request %+v\n", arg)
+	req := &TracingRequest{ForwardCount: int(arg.I3)}
+	res, err := h.handleCall(ctx, req, func(ctx context.Context) *TracingResponse {
+		tctx := ctx.(thrift.Context)
+		res, err := h.thriftClient.Call(tctx, &gen.Data{})
+		require.NoError(h.t, err)
+
+		var childResp TracingResponse
+		log.Printf("tchannel handler unmarshalling json %+v\n", res)
+		err = gojson.Unmarshal([]byte(res.S2), &childResp)
+		require.NoError(h.t, err)
+		return &childResp
+	})
+	require.NoError(h.t, err)
+	jsonBytes, err := gojson.Marshal(res)
+	require.NoError(h.t, err)
+	resp := &gen.Data{S2: string(jsonBytes)}
+	log.Printf("tchannel handler returning response %+v\n", resp)
+	return resp, nil
+}
+
+func (h *traceHandler) Simple(ctx thrift.Context) error {
+	return nil
 }
 
 type BasicTracerNullSpanRecorder struct{}
@@ -128,26 +173,34 @@ func TestTracingPropagation(t *testing.T) {
 			DisableRelay:   true,
 		}
 		WithVerifiedServer(t, opts, func(ch *Channel, hostPort string) {
-			handler := &traceHandler{t: t, ch: ch}
-			json.Register(ch, json.Handlers{
-				"call": handler.call,
-			}, handler.onError)
-			peer := ch.Peers().GetOrAdd(ch.PeerInfo().HostPort)
+			opts := &thrift.ClientOptions{HostPort: ch.PeerInfo().HostPort}
+			thriftClient := thrift.NewClient(ch, ch.PeerInfo().ServiceName, opts)
+
+			handler := &traceHandler{t: t, ch: ch, thriftClient: gen.NewTChanSimpleServiceClient(thriftClient)}
+
+			// Register JSON handler
+			json.Register(ch, json.Handlers{"call": handler.callJSON}, handler.onError)
+
+			// Register Thrift handler
+			server := thrift.NewServer(ch)
+			server.Register(gen.NewTChanSimpleServiceServer(handler))
 
 			tests := []struct {
+				format          Format
 				forwardCount    int
 				tracingEnabled  bool
 				expectedBaggage string
 			}{
-				{1, true, baggageValue},
-				{1, false, baggageValue},
+				{JSON, 1, true, baggageValue},
+				{JSON, 1, false, baggageValue},
+				{Thrift, 1, true, baggageValue},
+				{Thrift, 1, false, baggageValue},
 			}
 
 			for _, test := range tests {
 				testTracingPropagation(
 					t,
-					peer,
-					ch,
+					handler,
 					tracer,
 					test,
 				)
@@ -158,20 +211,20 @@ func TestTracingPropagation(t *testing.T) {
 
 func testTracingPropagation(
 	t *testing.T,
-	peer *Peer,
-	ch *Channel,
+	handler *traceHandler,
 	tracer tracerChoice,
 	test struct {
+		format          Format
 		forwardCount    int
 		tracingEnabled  bool
 		expectedBaggage string
 	},
 ) {
 	log.Printf("Starting test %+v with tracer %+v", test, tracer)
-	ctx, cancel := json.NewContext(time.Second)
+	ctx, cancel := json.NewContext(2 * time.Second)
 	defer cancel()
 
-	span := ch.Tracer().StartSpan("client")
+	span := handler.ch.Tracer().StartSpan("client")
 	span.SetBaggageItem(baggageKey, baggageValue)
 	if test.tracingEnabled {
 		ext.SamplingPriority.Set(span, 1)
@@ -179,16 +232,24 @@ func testTracingPropagation(
 		ext.SamplingPriority.Set(span, 0)
 	}
 	ctx2 := opentracing.ContextWithSpan(ctx, span)
-	ctx = json.Wrap(ctx2)
 
 	var response TracingResponse
-	require.NoError(t, json.CallPeer(ctx, peer, ch.PeerInfo().ServiceName, "call", &TracingRequest{
-		ForwardCount: test.forwardCount,
-	}, &response))
+	if test.format == JSON {
+		jctx := json.Wrap(ctx2)
+		peer := handler.ch.Peers().GetOrAdd(handler.ch.PeerInfo().HostPort)
+		require.NoError(t, json.CallPeer(jctx, peer, handler.ch.PeerInfo().ServiceName, "call", &TracingRequest{
+			ForwardCount: test.forwardCount,
+		}, &response))
+	} else if test.format == Thrift {
+		tctx := thrift.Wrap(ctx2)
+		res, err := handler.thriftClient.Call(tctx, &gen.Data{I3: int32(test.forwardCount)})
+		require.NoError(t, err)
+		err = gojson.Unmarshal([]byte(res.S2), &response)
+	}
 
 	span.Finish()
 
-	rootSpan := CurrentSpan(ctx)
+	rootSpan := CurrentSpan(ctx2)
 	log.Printf("Current span after test: %+v\n", rootSpan)
 	require.NotNil(t, rootSpan)
 	if tracer.zipkinCompatible {

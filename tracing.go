@@ -115,13 +115,13 @@ func (s *Span) initFromOpenTracing(span opentracing.Span) {
 
 func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodName string, call *OutboundCall, startTime time.Time) opentracing.Span {
 	parentSpan := opentracing.SpanFromContext(ctx)
-	log.Printf("outbound.go: parent span %+v", parentSpan)
+	log.Printf("parent span %+v", parentSpan)
 	span := c.Tracer().StartSpanWithOptions(opentracing.StartSpanOptions{
 		OperationName: serviceName + "::" + methodName,
 		Parent:        parentSpan,
 		StartTime:     startTime,
 	})
-	log.Printf("outbound.go: child span %+v", span)
+	log.Printf("child span %+v", span)
 	ext.SpanKind.Set(span, ext.SpanKindRPCClient)
 	ext.PeerService.Set(span, serviceName)
 	ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
@@ -159,7 +159,7 @@ func (c *Connection) extractInboundSpan(callReq *callReq) opentracing.Span {
 		ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
 		return span
 	}
-	log.Printf("inbound.go unable to parse span: %+v", err) // TODO remove
+	log.Printf("unable to parse span: %+v", err) // TODO remove
 	if err != opentracing.ErrUnsupportedFormat {
 		logTracingError(c.log, "Failed to extract Zipkin-style span", err)
 	}
@@ -179,7 +179,7 @@ func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[stri
 	var span = call.Response().span
 	operationName := call.ServiceName() + "::" + call.MethodString()
 	if span != nil {
-		log.Printf("json/handler found span %+v\n", span)
+		log.Printf("found span %+v\n", span)
 		// copy baggage from headers
 		if headers != nil {
 			carrier := opentracing.TextMapCarrier(headers)
@@ -187,7 +187,7 @@ func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[stri
 			// we'll only extract the SpanContext, which will directly support ForeachBaggageItem
 			if sp, _ := tracer.Join(operationName, opentracing.TextMap, carrier); sp != nil {
 				if bsp, ok := sp.(baggageIterator); ok {
-					log.Printf("json/handler copying baggage from %+v\n", bsp)
+					log.Printf("copying baggage from %+v\n", bsp)
 					bsp.ForeachBaggageItem(func(k, v string) {
 						span.SetBaggageItem(k, v)
 					})
