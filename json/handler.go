@@ -145,7 +145,7 @@ func (h *handler) extractTracing(ctx context.Context, call *tchannel.InboundCall
 			if sp, _ := h.tracer().Join(h.method, opentracing.TextMap, carrier); sp != nil {
 				if bsp, ok := sp.(baggageIterator); ok {
 					log.Printf("json/handler copying baggage from %+v\n", bsp)
-					bsp.ForeachBaggageItem(func (k, v string) {
+					bsp.ForeachBaggageItem(func(k, v string) {
 						span.SetBaggageItem(k, v)
 					})
 				} else {

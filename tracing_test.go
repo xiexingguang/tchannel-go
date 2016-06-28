@@ -31,13 +31,13 @@ import (
 	//"github.com/uber/tchannel-go/raw"
 	"github.com/uber/tchannel-go/testutils"
 
+	"github.com/opentracing/basictracer-go"
 	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uber/jaeger-client-go"
 	"golang.org/x/net/context"
-	"code.uber.internal/infra/statsdex/Godeps/_workspace/src/github.com/opentracing/opentracing-go/ext"
-	"github.com/opentracing/basictracer-go"
 )
 
 type TracingRequest struct {
@@ -59,7 +59,7 @@ type traceHandler struct {
 }
 
 const (
-	baggageKey = "luggage"
+	baggageKey   = "luggage"
 	baggageValue = "suitcase"
 )
 
@@ -86,7 +86,7 @@ func (h *traceHandler) call(ctx json.Context, req *TracingRequest) (*TracingResp
 		ParentID:       tchanSpan.ParentID(),
 		TracingEnabled: tchanSpan.Flags()&1 == 1,
 		Child:          childResp,
-		Luggage:	    span.BaggageItem(baggageKey),
+		Luggage:        span.BaggageItem(baggageKey),
 	}, nil
 }
 
@@ -94,12 +94,12 @@ func (h *traceHandler) onError(ctx context.Context, err error) {
 	h.t.Errorf("onError %v", err)
 }
 
-type BasicTracerNullSpanRecorder struct {}
+type BasicTracerNullSpanRecorder struct{}
 
 func (r *BasicTracerNullSpanRecorder) RecordSpan(span basictracer.RawSpan) {}
 
 type tracerChoice struct {
-	tracer opentracing.Tracer
+	tracer           opentracing.Tracer
 	zipkinCompatible bool
 	supportsBaggage  bool
 	description      string
@@ -111,8 +111,8 @@ func TestTracingPropagation(t *testing.T) {
 	defer jCloser.Close()
 
 	basic := basictracer.NewWithOptions(basictracer.Options{
-		ShouldSample: func(traceID uint64) bool { return true },
-		Recorder: &BasicTracerNullSpanRecorder{},
+		ShouldSample:         func(traceID uint64) bool { return true },
+		Recorder:             &BasicTracerNullSpanRecorder{},
 		NewSpanEventListener: func() func(basictracer.SpanEvent) { return nil },
 	})
 
@@ -125,7 +125,7 @@ func TestTracingPropagation(t *testing.T) {
 	for _, tracer := range tracers {
 		opts := &testutils.ChannelOpts{
 			ChannelOptions: ChannelOptions{Tracer: tracer.tracer},
-			DisableRelay: true,
+			DisableRelay:   true,
 		}
 		WithVerifiedServer(t, opts, func(ch *Channel, hostPort string) {
 			handler := &traceHandler{t: t, ch: ch}
@@ -170,7 +170,6 @@ func testTracingPropagation(
 	log.Printf("Starting test %+v with tracer %+v", test, tracer)
 	ctx, cancel := json.NewContext(time.Second)
 	defer cancel()
-
 
 	span := ch.Tracer().StartSpan("client")
 	span.SetBaggageItem(baggageKey, baggageValue)
