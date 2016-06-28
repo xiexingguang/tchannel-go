@@ -23,13 +23,14 @@ package tchannel
 import (
 	"fmt"
 
+	"log"
+	"time"
+
 	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
 	"golang.org/x/net/context"
 
 	"github.com/uber/tchannel-go/typed"
-	"log"
-	"github.com/opentracing/opentracing-go/ext"
-	"time"
 )
 
 // ZipkinSpanFormat defines a name for OpenTracing carrier format that tracer may support.
@@ -132,6 +133,7 @@ func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodN
 	return span
 }
 
+// InjectOutboundSpan serializes the tracing span from the `response` into the `headers`.
 func InjectOutboundSpan(response *OutboundCallResponse, headers map[string]string) map[string]string {
 	span := response.span
 	if span == nil {
@@ -170,6 +172,9 @@ type baggageIterator interface {
 	ForeachBaggageItem(handler func(k, v string))
 }
 
+// ExtractInboundSpan deserializes tracing span from the incoming `headers`.
+// If the response object already contains a pre-deserialized span (only for Zipkin-compatible tracers),
+// then the baggage is extracted from the headers and added to that span.
 func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[string]string, tracer opentracing.Tracer) context.Context {
 	var span = call.Response().span
 	operationName := call.ServiceName() + "::" + call.MethodString()

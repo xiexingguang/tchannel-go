@@ -168,7 +168,6 @@ func (c *Connection) dispatchInbound(_ uint32, _ uint32, call *InboundCall, fram
 		return
 	}
 
-
 	call.commonStatsTags["endpoint"] = call.methodString
 	call.statsReporter.IncCounter("inbound.calls.recvd", call.commonStatsTags, 1)
 	if span := call.response.span; span != nil {
