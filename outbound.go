@@ -22,11 +22,9 @@ package tchannel
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
-	"github.com/opentracing/opentracing-go/ext"
 	"github.com/uber/tchannel-go/typed"
 	"golang.org/x/net/context"
 )
@@ -113,26 +111,7 @@ func (c *Connection) beginCall(ctx context.Context, serviceName, methodName stri
 	response := new(OutboundCallResponse)
 	response.startedAt = now
 	response.timeNow = c.timeNow
-
-	// handle tracing
-	parentSpan := opentracing.SpanFromContext(ctx)
-	log.Printf("outbound.go: parent span %+v", parentSpan)
-	span := c.Tracer().StartSpanWithOptions(opentracing.StartSpanOptions{
-		OperationName: serviceName + "::" + methodName,
-		Parent:        parentSpan,
-		StartTime:     now,
-	})
-	log.Printf("outbound.go: child span %+v", span)
-	ext.SpanKind.Set(span, ext.SpanKindRPCClient)
-	ext.PeerService.Set(span, serviceName)
-	ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
-	span.SetTag("as", call.callReq.Headers[ArgScheme])
-	if isTracingDisabled(ctx) {
-		ext.SamplingPriority.Set(span, 0)
-	}
-
-	call.callReq.Tracing.initFromOpenTracing(span)
-	response.Span = span
+	response.span = c.startOutboundSpan(ctx, serviceName, methodName, call, now)
 
 	response.requestState = callOptions.RequestState
 	response.mex = mex
@@ -241,7 +220,7 @@ type OutboundCallResponse struct {
 	// startedAt is the time at which the outbound call was started.
 	startedAt       time.Time
 	timeNow         func() time.Time
-	Span            opentracing.Span
+	span            opentracing.Span
 	statsReporter   StatsReporter
 	commonStatsTags map[string]string
 }
@@ -331,15 +310,14 @@ func (response *OutboundCallResponse) doneReading(unexpected error) {
 	isSuccess := unexpected == nil && !response.ApplicationError()
 	lastAttempt := isSuccess || !response.requestState.HasRetries(unexpected)
 
-	if span := response.Span; span != nil {
-		if !isSuccess {
-			span.SetTag("error", true)
-		}
-		if unexpected != nil {
-			span.LogEventWithPayload("error", unexpected)
-		}
-		span.FinishWithOptions(opentracing.FinishOptions{FinishTime: now})
+	span := response.span
+	if !isSuccess {
+		span.SetTag("error", true)
 	}
+	if unexpected != nil {
+		span.LogEventWithPayload("error", unexpected)
+	}
+	span.FinishWithOptions(opentracing.FinishOptions{FinishTime: now})
 
 	latency := now.Sub(response.startedAt)
 	response.statsReporter.RecordTimer("outbound.calls.per-attempt.latency", response.commonStatsTags, latency)

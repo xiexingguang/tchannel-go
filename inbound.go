@@ -28,7 +28,6 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	"golang.org/x/net/context"
-	"log"
 )
 
 var errInboundRequestAlreadyActive = errors.New("inbound request is already active; possible duplicate client id")
@@ -93,17 +92,7 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	response.call = call
 	response.calledAt = now
 	response.timeNow = c.timeNow
-
-	if span, err := c.Tracer().Join("", ZipkinSpanFormat, &callReq.Tracing); span != nil {
-		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
-		ext.PeerService.Set(span, callReq.Headers[CallerName])
-		span.SetTag("as", callReq.Headers[ArgScheme])
-		ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
-		response.Span = span
-	} else {
-		log.Printf("inbound.go unable to parse span: %+v", err)
-	}
-
+	response.span = c.extractInboundSpan(callReq) // TODO may return nil
 	response.mex = mex
 	response.conn = c
 	response.cancel = cancel
@@ -179,11 +168,11 @@ func (c *Connection) dispatchInbound(_ uint32, _ uint32, call *InboundCall, fram
 		return
 	}
 
-	call.commonStatsTags["endpoint"] = string(call.method)
-	call.statsReporter.IncCounter("inbound.calls.recvd", call.commonStatsTags, 1)
 
-	if span := call.response.Span; span != nil {
-		span.SetOperationName(string(call.method))
+	call.commonStatsTags["endpoint"] = call.methodString
+	call.statsReporter.IncCounter("inbound.calls.recvd", call.commonStatsTags, 1)
+	if span := call.response.span; span != nil {
+		span.SetOperationName(call.methodString)
 	}
 
 	// TODO(prashant): This is an expensive way to check for cancellation. Use a heap for timeouts.
@@ -318,7 +307,7 @@ type InboundCallResponse struct {
 	applicationError bool
 	systemError      bool
 	headers          transportHeaders
-	Span             opentracing.Span
+	span             opentracing.Span // TODO another option is to store this on the Call object
 	statsReporter    StatsReporter
 	commonStatsTags  map[string]string
 }
@@ -335,7 +324,7 @@ func (response *InboundCallResponse) SendSystemError(err error) error {
 	response.doneSending()
 	response.call.releasePreviousFragment()
 
-	if span := response.Span; span != nil {
+	if span := response.span; span != nil {
 		ext.Error.Set(span, true)
 		span.LogEventWithPayload("error", err.Error())
 		span.Finish()
@@ -386,7 +375,7 @@ func (response *InboundCallResponse) doneSending() {
 	// TODO(prashant): Move this to when the message is actually being sent.
 	now := response.timeNow()
 
-	if span := response.Span; span != nil {
+	if span := response.span; span != nil {
 		if response.applicationError || response.systemError {
 			span.SetTag("error", true)
 		}

@@ -27,6 +27,9 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/uber/tchannel-go/typed"
+	"log"
+	"github.com/opentracing/opentracing-go/ext"
+	"time"
 )
 
 // ZipkinSpanFormat defines a name for OpenTracing carrier format that tracer may support.
@@ -104,5 +107,108 @@ func CurrentSpan(ctx context.Context) *Span {
 // initFromOpenTracing initializes Span fields from an OpenTracing Span,
 // assuming the tracing implementation supports Zipkin-style span IDs.
 func (s *Span) initFromOpenTracing(span opentracing.Span) {
-	span.Tracer().Inject(span, ZipkinSpanFormat, s)
+	if err := span.Tracer().Inject(span, ZipkinSpanFormat, s); err != nil && err != opentracing.ErrUnsupportedFormat {
+		// TODO log error?
+	}
+}
+
+func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodName string, call *OutboundCall, startTime time.Time) opentracing.Span {
+	parentSpan := opentracing.SpanFromContext(ctx)
+	log.Printf("outbound.go: parent span %+v", parentSpan)
+	span := c.Tracer().StartSpanWithOptions(opentracing.StartSpanOptions{
+		OperationName: serviceName + "::" + methodName,
+		Parent:        parentSpan,
+		StartTime:     startTime,
+	})
+	log.Printf("outbound.go: child span %+v", span)
+	ext.SpanKind.Set(span, ext.SpanKindRPCClient)
+	ext.PeerService.Set(span, serviceName)
+	ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
+	span.SetTag("as", call.callReq.Headers[ArgScheme])
+	if isTracingDisabled(ctx) {
+		ext.SamplingPriority.Set(span, 0)
+	}
+	call.callReq.Tracing.initFromOpenTracing(span)
+	return span
+}
+
+func InjectOutboundSpan(response *OutboundCallResponse, headers map[string]string) map[string]string {
+	span := response.span
+	if span == nil {
+		return headers
+	}
+	if headers == nil {
+		headers = make(map[string]string)
+	}
+	carrier := opentracing.TextMapCarrier(headers)
+	if err := span.Tracer().Inject(span, opentracing.TextMap, carrier); err == nil {
+		// TODO log error?
+		return headers
+	}
+	return headers
+}
+
+func (c *Connection) extractInboundSpan(callReq *callReq) opentracing.Span {
+	span, err := c.Tracer().Join("", ZipkinSpanFormat, &callReq.Tracing)
+	if span != nil {
+		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
+		ext.PeerService.Set(span, callReq.Headers[CallerName])
+		span.SetTag("as", callReq.Headers[ArgScheme])
+		ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
+		return span
+	}
+	log.Printf("inbound.go unable to parse span: %+v", err) // TODO remove
+	if err != opentracing.ErrUnsupportedFormat {
+		logTracingError(c.log, "Failed to extract Zipkin-style span", err)
+	}
+	// TODO decide if we can leave with nil span. Assigning Noop span causes panic in the tracer.
+	return nil
+}
+
+// TODO temporary adapter to access non-standard baggage iterator interface
+type baggageIterator interface {
+	ForeachBaggageItem(handler func(k, v string))
+}
+
+func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[string]string, tracer opentracing.Tracer) context.Context {
+	var span = call.Response().span
+	operationName := call.ServiceName() + "::" + call.MethodString()
+	if span != nil {
+		log.Printf("json/handler found span %+v\n", span)
+		// copy baggage from headers
+		if headers != nil {
+			carrier := opentracing.TextMapCarrier(headers)
+			// TODO right now we're creating a second span. Once PR #82 lands in opentracing-go,
+			// we'll only extract the SpanContext, which will directly support ForeachBaggageItem
+			if sp, _ := tracer.Join(operationName, opentracing.TextMap, carrier); sp != nil {
+				if bsp, ok := sp.(baggageIterator); ok {
+					log.Printf("json/handler copying baggage from %+v\n", bsp)
+					bsp.ForeachBaggageItem(func(k, v string) {
+						span.SetBaggageItem(k, v)
+					})
+				} else {
+					// TODO after PR #82, we should never reach this point
+				}
+			}
+		}
+	} else {
+		if headers != nil {
+			carrier := opentracing.TextMapCarrier(headers)
+			if sp, _ := tracer.Join(operationName, opentracing.TextMap, carrier); sp != nil {
+				span = sp
+			}
+		}
+		if span == nil {
+			span = tracer.StartSpan(operationName)
+		}
+		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
+		ext.PeerService.Set(span, call.CallerName())
+		span.SetTag("as", "json")
+		ext.PeerHostname.Set(span, call.RemotePeer().HostPort) // TODO split host:port
+	}
+	return opentracing.ContextWithSpan(ctx, span)
+}
+
+func logTracingError(logger Logger, message string, err error) {
+	// TODO do we want to log tracing errors, like failures to extract/inject spans?
 }
