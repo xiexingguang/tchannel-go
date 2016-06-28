@@ -47,3 +47,5 @@ import:
 - package: github.com/opentracing/opentracing-go
 - package: github.com/uber/jaeger-client-go
 - package: github.com/opentracing/basictracer-go
+- package: github.com/gogo/protobuf
+  version: ^0.2.0

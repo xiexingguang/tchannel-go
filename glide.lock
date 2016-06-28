@@ -1,5 +1,5 @@
-hash: 9549c7019b53be5d043e8ab57aee016514e8dd528e241e3252f526d8cf3c8b10
-updated: 2016-06-28T11:12:01.534619466-04:00
+hash: 0e6cd97b3b2b3dfd48cb6f316a41d9868c6da0f3ba8ea4338956a679d64c9221
+updated: 2016-06-28T13:08:37.852989322-04:00
 imports:
 - name: github.com/apache/thrift
   version: 0e9fed1e12ed066865e46c6903782b2ef95f4650
@@ -17,6 +17,8 @@ imports:
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
   - spew
+- name: github.com/gogo/protobuf
+  version: 4168943e65a2802828518e95310aeeed6d84c4e5
 - name: github.com/jessevdk/go-flags
   version: f2785f5820ec967043de79c8be97edfc464ca745
 - name: github.com/opentracing/basictracer-go
