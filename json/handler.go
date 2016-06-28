@@ -127,19 +127,25 @@ func Register(registrar tchannel.Registrar, funcs Handlers, onError func(context
 	return nil
 }
 
-func (h *handler) extractTracing(ctx context.Context, headers map[string]string) context.Context {
-	var span opentracing.Span
-	if headers != nil {
-		carrier := opentracing.TextMapCarrier(headers)
-		if sp, _ := h.tracer().Join(h.method, opentracing.TextMap, carrier); sp != nil {
-			span = sp
+func (h *handler) extractTracing(ctx context.Context, call *tchannel.InboundCall, headers map[string]string) context.Context {
+	var span = call.Response().Span
+	if span != nil {
+		// TODO copy baggage from headers
+	} else {
+		if headers != nil {
+			carrier := opentracing.TextMapCarrier(headers)
+			if sp, _ := h.tracer().Join(h.method, opentracing.TextMap, carrier); sp != nil {
+				span = sp
+			}
 		}
+		if span == nil {
+			span = h.tracer().StartSpan(h.method)
+		}
+		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
+		ext.PeerService.Set(span, call.CallerName())
+		span.SetTag("as", "json")
+		ext.PeerHostname.Set(span, call.RemotePeer().HostPort) // TODO split host:port
 	}
-	if span == nil {
-		span = h.tracer().StartSpan(h.method)
-	}
-	ext.SpanKind.Set(span, ext.SpanKindRPCServer)
-	// TODO set other tags formerly in 'inbound.go', like "as", peer, etc.
 	return opentracing.ContextWithSpan(ctx, span)
 }
 
@@ -149,7 +155,7 @@ func (h *handler) Handle(tctx context.Context, call *tchannel.InboundCall) error
 	if err := tchannel.NewArgReader(call.Arg2Reader()).ReadJSON(&headers); err != nil {
 		return fmt.Errorf("arg2 read failed: %v", err)
 	}
-	tctx = h.extractTracing(tctx, headers)
+	tctx = h.extractTracing(tctx, call, headers)
 	ctx := WithHeaders(tctx, headers)
 
 	var arg3 reflect.Value

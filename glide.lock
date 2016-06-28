@@ -1,5 +1,5 @@
-hash: 111bdf9797d23d4b9f8833a9780e382dd53153af70ad286f99815cea4c2fdf4b
-updated: 2016-06-23T14:37:37.52089212-04:00
+hash: 9549c7019b53be5d043e8ab57aee016514e8dd528e241e3252f526d8cf3c8b10
+updated: 2016-06-28T11:12:01.534619466-04:00
 imports:
 - name: github.com/apache/thrift
   version: 0e9fed1e12ed066865e46c6903782b2ef95f4650
@@ -18,9 +18,11 @@ imports:
   subpackages:
   - spew
 - name: github.com/jessevdk/go-flags
-  version: b9b882a3990882b05e02765f5df2cd3ad02874ee
+  version: f2785f5820ec967043de79c8be97edfc464ca745
+- name: github.com/opentracing/basictracer-go
+  version: bc2e227fd86b4ef26adaac4b21f78523127150b5
 - name: github.com/opentracing/opentracing-go
-  version: 6faad65c6060f246f78a172f9f35a9d44c3d94fa
+  version: b228439c64c2c323dec3ebd9d445f168d4fae60c
   subpackages:
   - ext
 - name: github.com/pmezard/go-difflib
@@ -46,9 +48,9 @@ imports:
 - name: github.com/uber-go/atomic
   version: e682c1008ac17bf26d2e4b5ad6cdd08520ed0b22
 - name: github.com/uber/jaeger-client-go
-  version: 9ed65b0b1d0def67f33757cdf85a54c2d67b9eb0
+  version: fbffee0422b9e5c79114baf089adf0ac592ec9d9
 - name: golang.org/x/net
-  version: bc3663df0ac92f928d419e31e0d2af22e683a5a2
+  version: 04557861f124410b768b1ba5bb3a91b705afbfc6
   subpackages:
   - context
 - name: gopkg.in/yaml.v2

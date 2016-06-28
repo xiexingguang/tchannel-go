@@ -93,27 +93,14 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	response.calledAt = now
 	response.timeNow = c.timeNow
 
-	// TODO because tracing is propagated via app headers, we cannot start a span here
-	// TODO the tags from below code should be set to span elsewhere
-	//response.Annotations = Annotations{
-	//	reporter: c.traceReporter,
-	//	timeNow:  c.timeNow,
-	//	data: TraceData{
-	//		Span: callReq.Tracing,
-	//		Source: TraceEndpoint{
-	//			HostPort:    c.localPeerInfo.HostPort,
-	//			ServiceName: callReq.Service,
-	//		},
-	//	},
-	//	binaryAnnotationsBacking: [2]BinaryAnnotation{
-	//		{Key: "cn", Value: callReq.Headers[CallerName]},
-	//		{Key: "as", Value: callReq.Headers[ArgScheme]},
-	//	},
-	//}
-	//response.data.Target = response.data.Source
-	//response.data.Annotations = response.annotationsBacking[:0]
-	//response.data.BinaryAnnotations = response.binaryAnnotationsBacking[:]
-	//response.AddAnnotationAt(AnnotationKeyServerReceive, now)
+	if span, _ := c.Tracer().Join("", ZipkinSpanFormat, &response.Span); span != nil {
+		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
+		ext.PeerService.Set(span, callReq.Headers[CallerName])
+		span.SetTag("as", callReq.Headers[ArgScheme])
+		ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
+		response.Span = span
+	}
+
 	response.mex = mex
 	response.conn = c
 	response.cancel = cancel
@@ -192,7 +179,7 @@ func (c *Connection) dispatchInbound(_ uint32, _ uint32, call *InboundCall, fram
 	call.commonStatsTags["endpoint"] = string(call.method)
 	call.statsReporter.IncCounter("inbound.calls.recvd", call.commonStatsTags, 1)
 
-	if span := call.response.span; span != nil {
+	if span := call.response.Span; span != nil {
 		span.SetOperationName(string(call.method))
 	}
 
@@ -328,7 +315,7 @@ type InboundCallResponse struct {
 	applicationError bool
 	systemError      bool
 	headers          transportHeaders
-	span             opentracing.Span
+	Span             opentracing.Span
 	statsReporter    StatsReporter
 	commonStatsTags  map[string]string
 }
@@ -345,7 +332,7 @@ func (response *InboundCallResponse) SendSystemError(err error) error {
 	response.doneSending()
 	response.call.releasePreviousFragment()
 
-	if span := response.span; span != nil {
+	if span := response.Span; span != nil {
 		ext.Error.Set(span, true)
 		span.LogEventWithPayload("error", err.Error())
 		span.Finish()
@@ -396,7 +383,7 @@ func (response *InboundCallResponse) doneSending() {
 	// TODO(prashant): Move this to when the message is actually being sent.
 	now := response.timeNow()
 
-	if span := response.span; span != nil {
+	if span := response.Span; span != nil {
 		if response.applicationError || response.systemError {
 			span.SetTag("error", true)
 		}
