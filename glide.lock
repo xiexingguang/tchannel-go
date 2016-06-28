@@ -48,7 +48,7 @@ imports:
 - name: github.com/uber-go/atomic
   version: e682c1008ac17bf26d2e4b5ad6cdd08520ed0b22
 - name: github.com/uber/jaeger-client-go
-  version: fbffee0422b9e5c79114baf089adf0ac592ec9d9
+  version: 10a7d7b89292616354aad47041e62aeaef277e2c
 - name: golang.org/x/net
   version: 04557861f124410b768b1ba5bb3a91b705afbfc6
   subpackages:
