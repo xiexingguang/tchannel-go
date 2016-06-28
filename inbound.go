@@ -28,6 +28,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	"golang.org/x/net/context"
+	"log"
 )
 
 var errInboundRequestAlreadyActive = errors.New("inbound request is already active; possible duplicate client id")
@@ -93,12 +94,14 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	response.calledAt = now
 	response.timeNow = c.timeNow
 
-	if span, _ := c.Tracer().Join("", ZipkinSpanFormat, &response.Span); span != nil {
+	if span, err := c.Tracer().Join("", ZipkinSpanFormat, &callReq.Tracing); span != nil {
 		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
 		ext.PeerService.Set(span, callReq.Headers[CallerName])
 		span.SetTag("as", callReq.Headers[ArgScheme])
 		ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
 		response.Span = span
+	} else {
+		log.Printf("inbound.go unable to parse span: %+v", err)
 	}
 
 	response.mex = mex

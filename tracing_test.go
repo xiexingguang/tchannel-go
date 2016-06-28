@@ -167,6 +167,7 @@ func testTracingPropagation(
 		expectedBaggage string
 	},
 ) {
+	log.Printf("Starting test %+v with tracer %+v", test, tracer)
 	ctx, cancel := json.NewContext(time.Second)
 	defer cancel()
 

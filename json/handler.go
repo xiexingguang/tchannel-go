@@ -29,6 +29,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	"golang.org/x/net/context"
+	"log"
 )
 
 var (
@@ -127,10 +128,31 @@ func Register(registrar tchannel.Registrar, funcs Handlers, onError func(context
 	return nil
 }
 
+// TODO temporary adapter to access non-standard baggage iterator interface
+type baggageIterator interface {
+	ForeachBaggageItem(handler func(k, v string))
+}
+
 func (h *handler) extractTracing(ctx context.Context, call *tchannel.InboundCall, headers map[string]string) context.Context {
 	var span = call.Response().Span
 	if span != nil {
+		log.Printf("json/handler found span %+v\n", span)
 		// TODO copy baggage from headers
+		if headers != nil {
+			carrier := opentracing.TextMapCarrier(headers)
+			// TODO right now we're creating a second span. Once PR #82 lands in opentracing-go,
+			// we'll only extract the SpanContext, which will directly support ForeachBaggageItem
+			if sp, _ := h.tracer().Join(h.method, opentracing.TextMap, carrier); sp != nil {
+				if bsp, ok := sp.(baggageIterator); ok {
+					log.Printf("json/handler copying baggage from %+v\n", bsp)
+					bsp.ForeachBaggageItem(func (k, v string) {
+						span.SetBaggageItem(k, v)
+					})
+				} else {
+					// TODO after PR #82, we should never reach this point
+				}
+			}
+		}
 	} else {
 		if headers != nil {
 			carrier := opentracing.TextMapCarrier(headers)
