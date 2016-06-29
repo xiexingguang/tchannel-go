@@ -151,12 +151,14 @@ func InjectOutboundSpan(response *OutboundCallResponse, headers map[string]strin
 }
 
 func (c *Connection) extractInboundSpan(callReq *callReq) opentracing.Span {
+	log.Printf("incoming TChannel span: %+v", callReq.Tracing) // TODO remove
 	span, err := c.Tracer().Join("", ZipkinSpanFormat, &callReq.Tracing)
 	if span != nil {
 		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
 		ext.PeerService.Set(span, callReq.Headers[CallerName])
 		span.SetTag("as", callReq.Headers[ArgScheme])
 		ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
+		log.Printf("inbound span extracted: %+v", span)       // TODO remove
 		return span
 	}
 	log.Printf("unable to parse span: %+v", err) // TODO remove

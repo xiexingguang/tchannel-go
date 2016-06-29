@@ -122,6 +122,9 @@ else
 	@echo "Skipping linters on" $(GO_VERSION)
 endif
 
+todos:
+	 @echo "Checking for unresolved TODOs"
+	-git grep -i -n TODO | $(FILTER) | grep -v -e Makefile
 
 thrift_example: thrift_gen
 	go build -o $(BUILD)/examples/thrift       ./examples/thrift/main.go

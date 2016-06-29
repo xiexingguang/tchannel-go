@@ -24,15 +24,16 @@ import (
 	gojson "encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"testing"
 	"time"
 
 	. "github.com/uber/tchannel-go"
 	"github.com/uber/tchannel-go/json"
-	gen "github.com/uber/tchannel-go/thrift/gen-go/test"
 	"github.com/uber/tchannel-go/raw"
 	"github.com/uber/tchannel-go/testutils"
 	"github.com/uber/tchannel-go/thrift"
+	gen "github.com/uber/tchannel-go/thrift/gen-go/test"
 
 	"github.com/opentracing/basictracer-go"
 	"github.com/opentracing/opentracing-go"
@@ -73,12 +74,15 @@ func (h *traceHandler) handleCall(
 	req *TracingRequest,
 	downstream func(ctx context.Context) *TracingResponse,
 ) (*TracingResponse, error) {
+	log.Printf("handleCall(%+v)", req)
 	tchanSpan := CurrentSpan(ctx)
 	if tchanSpan == nil {
+		log.Printf("tracing not found")
 		return nil, fmt.Errorf("tracing not found")
 	}
 	span := opentracing.SpanFromContext(ctx)
 	if span == nil {
+		log.Printf("open tracing not found")
 		return nil, fmt.Errorf("tracing not found")
 	}
 
@@ -87,20 +91,60 @@ func (h *traceHandler) handleCall(
 		childResp = downstream(ctx)
 	}
 
-	return &TracingResponse{
+	resp := &TracingResponse{
 		TraceID:        tchanSpan.TraceID(),
 		SpanID:         tchanSpan.SpanID(),
 		ParentID:       tchanSpan.ParentID(),
 		TracingEnabled: tchanSpan.Flags()&1 == 1,
 		Child:          childResp,
 		Luggage:        span.BaggageItem(baggageKey),
-	}, nil
+	}
+	log.Printf("handleCall() -> %+v", resp)
+	return resp, nil
 }
 
+// handleStringCall is a wrapper around typed handleCall which expects res to be JSON strings
+func (h *traceHandler) handleStringCall(
+	ctx context.Context,
+	req *TracingRequest,
+	downstream func(ctx context.Context) string,
+) (*TracingResponse, error) {
+	return h.handleCall(ctx, req, func(ctx context.Context) *TracingResponse {
+		log.Printf("handleStringCall req=%+v\n", req)
+		str := downstream(ctx)
+		var res = &TracingResponse{}
+		err := gojson.Unmarshal([]byte(str), res)
+		require.NoError(h.t, err)
+		return res
+	})
+}
+
+// RawHandler tests tracing over Raw encoding
 type RawHandler struct {
 	traceHandler
 }
 
+func (h *RawHandler) Handle(ctx context.Context, args *raw.Args) (*raw.Res, error) {
+	log.Printf("raw handler processing request %+v\n", args)
+	req := &TracingRequest{ForwardCount: int(args.Arg3[0])}
+	res, err := h.handleStringCall(ctx, req, func(ctx context.Context) string {
+		_, arg3, _, err := raw.Call(ctx, h.ch, h.ch.PeerInfo().HostPort, h.ch.PeerInfo().ServiceName,
+			"rawcall", nil, []byte{0})
+		require.NoError(h.t, err)
+		return string(arg3) // return JSON string
+	})
+	require.NoError(h.t, err)
+	jsonBytes, err := gojson.Marshal(res)
+	require.NoError(h.t, err)
+	resp := &raw.Res{Arg3: jsonBytes} // return Data with JSON string
+	log.Printf("raw handler returning json %s", string(jsonBytes))
+	log.Printf("raw handler returning response %+v", resp)
+	return resp, nil
+}
+
+func (h *RawHandler) OnError(ctx context.Context, err error) {}
+
+// JSONHandler tests tracing over JSON encoding
 type JSONHandler struct {
 	traceHandler
 }
@@ -120,29 +164,24 @@ func (h *JSONHandler) onError(ctx context.Context, err error) {
 	h.t.Errorf("onError %v", err)
 }
 
+// ThriftHandler tests tracing over Thrift encoding
 type ThriftHandler struct {
 	traceHandler
 }
 
-// Call implements Thrift service endpoint
 func (h *ThriftHandler) Call(ctx thrift.Context, arg *gen.Data) (*gen.Data, error) {
 	log.Printf("tchannel handler processing request %+v\n", arg)
 	req := &TracingRequest{ForwardCount: int(arg.I3)}
-	res, err := h.handleCall(ctx, req, func(ctx context.Context) *TracingResponse {
+	res, err := h.handleStringCall(ctx, req, func(ctx context.Context) string {
 		tctx := ctx.(thrift.Context)
 		res, err := h.thriftClient.Call(tctx, &gen.Data{})
 		require.NoError(h.t, err)
-
-		var childResp TracingResponse
-		log.Printf("tchannel handler unmarshalling json %+v\n", res)
-		err = gojson.Unmarshal([]byte(res.S2), &childResp)
-		require.NoError(h.t, err)
-		return &childResp
+		return res.S2 // return JSON string
 	})
 	require.NoError(h.t, err)
 	jsonBytes, err := gojson.Marshal(res)
 	require.NoError(h.t, err)
-	resp := &gen.Data{S2: string(jsonBytes)}
+	resp := &gen.Data{S2: string(jsonBytes)} // return Data with JSON string
 	log.Printf("tchannel handler returning response %+v\n", resp)
 	return resp, nil
 }
@@ -151,9 +190,17 @@ func (h *ThriftHandler) Simple(ctx thrift.Context) error {
 	return nil
 }
 
-type BasicTracerNullSpanRecorder struct{}
+// TODO validate tracingDisabled scenarios
+type BasicTracerInMemorySpanRecorder struct {
+	sync.Mutex
+	spans []basictracer.RawSpan
+}
 
-func (r *BasicTracerNullSpanRecorder) RecordSpan(span basictracer.RawSpan) {}
+func (r *BasicTracerInMemorySpanRecorder) RecordSpan(span basictracer.RawSpan) {
+	r.Lock()
+	defer r.Unlock()
+	r.spans = append(r.spans, span)
+}
 
 type tracerChoice struct {
 	tracer           opentracing.Tracer
@@ -169,11 +216,11 @@ func TestTracingPropagation(t *testing.T) {
 
 	basic := basictracer.NewWithOptions(basictracer.Options{
 		ShouldSample:         func(traceID uint64) bool { return true },
-		Recorder:             &BasicTracerNullSpanRecorder{},
+		Recorder:             &BasicTracerInMemorySpanRecorder{},
 		NewSpanEventListener: func() func(basictracer.SpanEvent) { return nil },
 	})
 
-	// TODO also test raw/thrift, raw will not propagate baggage
+	// TODO test does not work with Raw encoding except with Jaeger
 	tracers := []tracerChoice{
 		{nil, false, false, "default Noop tracer"},
 		{basic, false, true, "basic tracer"},
@@ -191,6 +238,10 @@ func TestTracingPropagation(t *testing.T) {
 
 			handler := &traceHandler{t: t, ch: ch, thriftClient: simpleClient}
 
+			// Register Raw handler
+			rawHandler := &RawHandler{*handler}
+			ch.Register(raw.Wrap(rawHandler), "rawcall")
+
 			// Register JSON handler
 			jsonHandler := &JSONHandler{*handler}
 			json.Register(ch, json.Handlers{"call": jsonHandler.callJSON}, jsonHandler.onError)
@@ -206,6 +257,8 @@ func TestTracingPropagation(t *testing.T) {
 				tracingEnabled  bool
 				expectedBaggage string
 			}{
+				{Raw, 1, true, ""},  // Raw has no headers, thus no baggage
+				{Raw, 1, false, ""}, // Raw has no headers, thus no baggage
 				{JSON, 1, true, baggageValue},
 				{JSON, 1, false, baggageValue},
 				{Thrift, 1, true, baggageValue},
@@ -213,15 +266,14 @@ func TestTracingPropagation(t *testing.T) {
 			}
 
 			for _, test := range tests {
-				testTracingPropagation(t, handler, tracer, test)
+				handler.testTracingPropagation(t, tracer, test)
 			}
 		})
 	}
 }
 
-func testTracingPropagation(
+func (h *traceHandler) testTracingPropagation(
 	t *testing.T,
-	handler *traceHandler,
 	tracer tracerChoice,
 	test struct {
 		format          Format
@@ -230,15 +282,19 @@ func testTracingPropagation(
 		expectedBaggage string
 	},
 ) {
-	log.Printf("Starting test %+v with tracer %+v", test, tracer)
+	descr := fmt.Sprintf("test %+v with tracer %+v", test, tracer)
+	if !tracer.zipkinCompatible && test.format == Raw {
+		log.Printf("Raw encoding not supported; %s", descr)
+		return
+	}
+	log.Printf("======> Starting %s", descr)
+
 	ctx, cancel := json.NewContext(2 * time.Second)
 	defer cancel()
 
-	span := handler.ch.Tracer().StartSpan("client")
+	span := h.ch.Tracer().StartSpan("client")
 	span.SetBaggageItem(baggageKey, baggageValue)
-	if test.tracingEnabled {
-		ext.SamplingPriority.Set(span, 1)
-	} else {
+	if !test.tracingEnabled {
 		ext.SamplingPriority.Set(span, 0)
 	}
 	ctx2 := opentracing.ContextWithSpan(ctx, span)
@@ -246,40 +302,47 @@ func testTracingPropagation(
 	var response TracingResponse
 	if test.format == JSON {
 		jctx := json.Wrap(ctx2)
-		peer := handler.ch.Peers().GetOrAdd(handler.ch.PeerInfo().HostPort)
-		require.NoError(t, json.CallPeer(jctx, peer, handler.ch.PeerInfo().ServiceName, "call", &TracingRequest{
-			ForwardCount: test.forwardCount,
-		}, &response))
+		peer := h.ch.Peers().GetOrAdd(h.ch.PeerInfo().HostPort)
+		req := &TracingRequest{ForwardCount: test.forwardCount}
+		err := json.CallPeer(jctx, peer, h.ch.PeerInfo().ServiceName, "call", req, &response)
+		require.NoError(t, err)
 	} else if test.format == Thrift {
 		tctx := thrift.Wrap(ctx2)
 		req := &gen.Data{I3: int32(test.forwardCount)}
-		res, err := handler.thriftClient.Call(tctx, req)
+		res, err := h.thriftClient.Call(tctx, req)
 		require.NoError(t, err)
 		err = gojson.Unmarshal([]byte(res.S2), &response)
+		require.NoError(t, err)
 	} else if test.format == Raw {
-		//peer := handler.ch.Peers().GetOrAdd(handler.ch.PeerInfo().HostPort)
-		raw.Call(nil, nil, "", "", "", nil, nil)
+		_, arg3, _, err := raw.Call(ctx2, h.ch, h.ch.PeerInfo().HostPort, h.ch.PeerInfo().ServiceName,
+			"rawcall", nil, []byte{byte(test.forwardCount)})
+		require.NoError(t, err)
+		err = gojson.Unmarshal(arg3, &response)
+		require.NoError(t, err)
 	}
+	log.Printf("Top test response %+v", response)
 
 	span.Finish()
 
 	rootSpan := CurrentSpan(ctx2)
 	log.Printf("Current span after test: %+v\n", rootSpan)
 	require.NotNil(t, rootSpan)
+
+	// TODO instead of Zipkin-style, check tracingEnabled via reporter
 	if tracer.zipkinCompatible {
 		assert.Equal(t, uint64(0), rootSpan.ParentID())
 		assert.NotEqual(t, uint64(0), rootSpan.TraceID())
-		assert.Equal(t, test.tracingEnabled, rootSpan.Flags()&1 == 1, "Tracing should be enabled; test=%+v", test)
+		assert.Equal(t, test.tracingEnabled, rootSpan.Flags()&1 == 1, "Tracing should be enabled; %s", descr)
 	}
 
 	for r, cnt := &response, 0; r != nil || cnt <= test.forwardCount; r, cnt = r.Child, cnt+1 {
-		require.NotNil(t, r, "No response for forward=%d; test=%+v", cnt, test)
+		require.NotNil(t, r, "No response for forward=%d; %s", cnt, descr)
 		if tracer.zipkinCompatible {
-			assert.Equal(t, test.tracingEnabled, r.TracingEnabled, "Tracing should be enabled; test=%+v", test)
-			assert.Equal(t, rootSpan.TraceID(), r.TraceID, "traceID sjould be the same; test=%+v", test)
+			assert.Equal(t, test.tracingEnabled, r.TracingEnabled, "Tracing should be enabled; %s", descr)
+			assert.Equal(t, rootSpan.TraceID(), r.TraceID, "traceID sjould be the same; %s", descr)
 		}
 		if tracer.supportsBaggage {
-			assert.Equal(t, baggageValue, r.Luggage, "baggage propagation check; test=%+v", test)
+			assert.Equal(t, test.expectedBaggage, r.Luggage, "baggage propagation check; %s", descr)
 		}
 	}
 

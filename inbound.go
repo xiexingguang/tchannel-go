@@ -93,6 +93,9 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	response.calledAt = now
 	response.timeNow = c.timeNow
 	response.span = c.extractInboundSpan(callReq) // TODO may return nil
+	if response.span != nil {
+		mex.ctx = opentracing.ContextWithSpan(mex.ctx, response.span)
+	}
 	response.mex = mex
 	response.conn = c
 	response.cancel = cancel
