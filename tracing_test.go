@@ -44,7 +44,9 @@ import (
 	"golang.org/x/net/context"
 )
 
+// TracingRequest tests tracing capabilities in a given server.
 type TracingRequest struct {
+	// ForwardCount tells the server how many times to forward this request to itself recursively
 	ForwardCount int
 }
 
@@ -58,6 +60,15 @@ func (r *TracingRequest) fromThrift(req *gen.Data) *TracingRequest {
 	return r
 }
 
+func (r *TracingRequest) toRaw() []byte {
+	return []byte{byte(r.ForwardCount)}
+}
+
+func (r *TracingRequest) toThrift() *gen.Data {
+	return &gen.Data{I3: int32(r.ForwardCount)}
+}
+
+// TracingResponse captures the trace info observed in the server and its downstream calls
 type TracingResponse struct {
 	TraceID        uint64
 	SpanID         uint64
@@ -116,7 +127,7 @@ type traceHandler struct {
 func (h *traceHandler) handleCall(
 	ctx context.Context,
 	req *TracingRequest,
-	downstream func(ctx context.Context) *TracingResponse,
+	downstream func(ctx context.Context, req *TracingRequest) *TracingResponse,
 ) (*TracingResponse, error) {
 	log.Printf("handleCall(%+v)", req)
 	tchanSpan := CurrentSpan(ctx)
@@ -132,7 +143,8 @@ func (h *traceHandler) handleCall(
 
 	var childResp *TracingResponse
 	if req.ForwardCount > 0 {
-		childResp = downstream(ctx)
+		downstreamReq := &TracingRequest{ForwardCount: req.ForwardCount - 1}
+		childResp = downstream(ctx, downstreamReq)
 	}
 
 	resp := &TracingResponse{
@@ -147,18 +159,6 @@ func (h *traceHandler) handleCall(
 	return resp, nil
 }
 
-// handleStringCall is a wrapper around typed handleCall which expects res to be JSON strings
-func (h *traceHandler) handleStringCall(
-	ctx context.Context,
-	req *TracingRequest,
-	downstream func(ctx context.Context) string,
-) (*TracingResponse, error) {
-	return h.handleCall(ctx, req, func(ctx context.Context) *TracingResponse {
-		str := downstream(ctx)
-		return new(TracingResponse).fromJSON(h.t, []byte(str))
-	})
-}
-
 // RawHandler tests tracing over Raw encoding
 type RawHandler struct {
 	traceHandler
@@ -167,11 +167,11 @@ type RawHandler struct {
 func (h *RawHandler) Handle(ctx context.Context, args *raw.Args) (*raw.Res, error) {
 	log.Printf("raw handler processing request %+v\n", args)
 	req := new(TracingRequest).fromRaw(args)
-	res, err := h.handleStringCall(ctx, req, func(ctx context.Context) string {
+	res, err := h.handleCall(ctx, req, func(ctx context.Context, req *TracingRequest) *TracingResponse {
 		_, arg3, _, err := raw.Call(ctx, h.ch, h.ch.PeerInfo().HostPort, h.ch.PeerInfo().ServiceName,
-			"rawcall", nil, []byte{0})
+			"rawcall", nil, req.toRaw())
 		require.NoError(h.t, err)
-		return string(arg3) // return JSON string
+		return new(TracingResponse).fromRaw(h.t, arg3)
 	})
 	require.NoError(h.t, err)
 	return res.toRaw(h.t), nil
@@ -185,12 +185,11 @@ type JSONHandler struct {
 }
 
 func (h *JSONHandler) callJSON(ctx json.Context, req *TracingRequest) (*TracingResponse, error) {
-	return h.handleCall(ctx, req, func(ctx context.Context) *TracingResponse {
+	return h.handleCall(ctx, req, func(ctx context.Context, req *TracingRequest) *TracingResponse {
 		jctx := ctx.(json.Context)
-		var childResp *TracingResponse
 		sc := h.ch.Peers().GetOrAdd(h.ch.PeerInfo().HostPort)
-		childResp = new(TracingResponse)
-		require.NoError(h.t, json.CallPeer(jctx, sc, h.ch.PeerInfo().ServiceName, "call", nil, childResp))
+		childResp := &TracingResponse{}
+		require.NoError(h.t, json.CallPeer(jctx, sc, h.ch.PeerInfo().ServiceName, "call", req, childResp))
 		return childResp
 	})
 }
@@ -207,11 +206,11 @@ type ThriftHandler struct {
 func (h *ThriftHandler) Call(ctx thrift.Context, arg *gen.Data) (*gen.Data, error) {
 	log.Printf("tchannel handler processing request %+v\n", arg)
 	req := new(TracingRequest).fromThrift(arg)
-	res, err := h.handleStringCall(ctx, req, func(ctx context.Context) string {
+	res, err := h.handleCall(ctx, req, func(ctx context.Context, req *TracingRequest) *TracingResponse {
 		tctx := ctx.(thrift.Context)
-		res, err := h.thriftClient.Call(tctx, &gen.Data{})
+		res, err := h.thriftClient.Call(tctx, req.toThrift())
 		require.NoError(h.t, err)
-		return res.S2 // return JSON string
+		return new(TracingResponse).fromThrift(h.t, res)
 	})
 	require.NoError(h.t, err)
 	return res.toThrift(h.t), nil
@@ -330,22 +329,21 @@ func (h *traceHandler) testTracingPropagation(
 	}
 	ctx2 := opentracing.ContextWithSpan(ctx, span)
 
+	req := &TracingRequest{ForwardCount: test.forwardCount}
 	var response TracingResponse
 	if test.format == Raw {
 		_, arg3, _, err := raw.Call(ctx2, h.ch, h.ch.PeerInfo().HostPort, h.ch.PeerInfo().ServiceName,
-			"rawcall", nil, []byte{byte(test.forwardCount)})
+			"rawcall", nil, req.toRaw())
 		require.NoError(t, err)
 		response.fromRaw(t, arg3)
 	} else if test.format == JSON {
 		jctx := json.Wrap(ctx2)
 		peer := h.ch.Peers().GetOrAdd(h.ch.PeerInfo().HostPort)
-		req := &TracingRequest{ForwardCount: test.forwardCount}
 		err := json.CallPeer(jctx, peer, h.ch.PeerInfo().ServiceName, "call", req, &response)
 		require.NoError(t, err)
 	} else if test.format == Thrift {
 		tctx := thrift.Wrap(ctx2)
-		req := &gen.Data{I3: int32(test.forwardCount)}
-		res, err := h.thriftClient.Call(tctx, req)
+		res, err := h.thriftClient.Call(tctx, req.toThrift())
 		require.NoError(t, err)
 		response.fromThrift(t, res)
 	}
@@ -374,13 +372,6 @@ func (h *traceHandler) testTracingPropagation(
 			assert.Equal(t, test.expectedBaggage, r.Luggage, "baggage propagation check; %s", descr)
 		}
 	}
-
-	//nestedResponse := response.Child
-	//require.NotNil(t, nestedResponse)
-	//assert.Equal(t, rootSpan.TraceID(), nestedResponse.TraceID)
-	//assert.Equal(t, response.SpanID, nestedResponse.ParentID)
-	//// assert.True(t, response.TracingEnabled, "Tracing should be enabled")
-	//assert.NotEqual(t, response.SpanID, nestedResponse.SpanID)
 }
 
 func TestTracingInjectorExtractor(t *testing.T) {
