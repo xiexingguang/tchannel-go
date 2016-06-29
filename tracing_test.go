@@ -30,7 +30,7 @@ import (
 	. "github.com/uber/tchannel-go"
 	"github.com/uber/tchannel-go/json"
 	gen "github.com/uber/tchannel-go/thrift/gen-go/test"
-	//"github.com/uber/tchannel-go/raw"
+	"github.com/uber/tchannel-go/raw"
 	"github.com/uber/tchannel-go/testutils"
 	"github.com/uber/tchannel-go/thrift"
 
@@ -56,26 +56,15 @@ type TracingResponse struct {
 	Luggage        string
 }
 
-type traceHandler struct {
-	ch           *Channel
-	t            *testing.T
-	thriftClient gen.TChanSimpleService
-}
-
 const (
 	baggageKey   = "luggage"
 	baggageValue = "suitcase"
 )
 
-func (h *traceHandler) callJSON(ctx json.Context, req *TracingRequest) (*TracingResponse, error) {
-	return h.handleCall(ctx, req, func(ctx context.Context) *TracingResponse {
-		jctx := ctx.(json.Context)
-		var childResp *TracingResponse
-		sc := h.ch.Peers().GetOrAdd(h.ch.PeerInfo().HostPort)
-		childResp = new(TracingResponse)
-		require.NoError(h.t, json.CallPeer(jctx, sc, h.ch.PeerInfo().ServiceName, "call", nil, childResp))
-		return childResp
-	})
+type traceHandler struct {
+	ch           *Channel
+	t            *testing.T
+	thriftClient gen.TChanSimpleService
 }
 
 // handleCall is used by handlers from different encodings as the main business logic
@@ -108,12 +97,35 @@ func (h *traceHandler) handleCall(
 	}, nil
 }
 
-func (h *traceHandler) onError(ctx context.Context, err error) {
+type RawHandler struct {
+	traceHandler
+}
+
+type JSONHandler struct {
+	traceHandler
+}
+
+func (h *JSONHandler) callJSON(ctx json.Context, req *TracingRequest) (*TracingResponse, error) {
+	return h.handleCall(ctx, req, func(ctx context.Context) *TracingResponse {
+		jctx := ctx.(json.Context)
+		var childResp *TracingResponse
+		sc := h.ch.Peers().GetOrAdd(h.ch.PeerInfo().HostPort)
+		childResp = new(TracingResponse)
+		require.NoError(h.t, json.CallPeer(jctx, sc, h.ch.PeerInfo().ServiceName, "call", nil, childResp))
+		return childResp
+	})
+}
+
+func (h *JSONHandler) onError(ctx context.Context, err error) {
 	h.t.Errorf("onError %v", err)
 }
 
+type ThriftHandler struct {
+	traceHandler
+}
+
 // Call implements Thrift service endpoint
-func (h *traceHandler) Call(ctx thrift.Context, arg *gen.Data) (*gen.Data, error) {
+func (h *ThriftHandler) Call(ctx thrift.Context, arg *gen.Data) (*gen.Data, error) {
 	log.Printf("tchannel handler processing request %+v\n", arg)
 	req := &TracingRequest{ForwardCount: int(arg.I3)}
 	res, err := h.handleCall(ctx, req, func(ctx context.Context) *TracingResponse {
@@ -135,7 +147,7 @@ func (h *traceHandler) Call(ctx thrift.Context, arg *gen.Data) (*gen.Data, error
 	return resp, nil
 }
 
-func (h *traceHandler) Simple(ctx thrift.Context) error {
+func (h *ThriftHandler) Simple(ctx thrift.Context) error {
 	return nil
 }
 
@@ -175,15 +187,18 @@ func TestTracingPropagation(t *testing.T) {
 		WithVerifiedServer(t, opts, func(ch *Channel, hostPort string) {
 			opts := &thrift.ClientOptions{HostPort: ch.PeerInfo().HostPort}
 			thriftClient := thrift.NewClient(ch, ch.PeerInfo().ServiceName, opts)
+			simpleClient := gen.NewTChanSimpleServiceClient(thriftClient)
 
-			handler := &traceHandler{t: t, ch: ch, thriftClient: gen.NewTChanSimpleServiceClient(thriftClient)}
+			handler := &traceHandler{t: t, ch: ch, thriftClient: simpleClient}
 
 			// Register JSON handler
-			json.Register(ch, json.Handlers{"call": handler.callJSON}, handler.onError)
+			jsonHandler := &JSONHandler{*handler}
+			json.Register(ch, json.Handlers{"call": jsonHandler.callJSON}, jsonHandler.onError)
 
 			// Register Thrift handler
 			server := thrift.NewServer(ch)
-			server.Register(gen.NewTChanSimpleServiceServer(handler))
+			thriftHandler := &ThriftHandler{*handler}
+			server.Register(gen.NewTChanSimpleServiceServer(thriftHandler))
 
 			tests := []struct {
 				format          Format
@@ -198,12 +213,7 @@ func TestTracingPropagation(t *testing.T) {
 			}
 
 			for _, test := range tests {
-				testTracingPropagation(
-					t,
-					handler,
-					tracer,
-					test,
-				)
+				testTracingPropagation(t, handler, tracer, test)
 			}
 		})
 	}
@@ -242,9 +252,13 @@ func testTracingPropagation(
 		}, &response))
 	} else if test.format == Thrift {
 		tctx := thrift.Wrap(ctx2)
-		res, err := handler.thriftClient.Call(tctx, &gen.Data{I3: int32(test.forwardCount)})
+		req := &gen.Data{I3: int32(test.forwardCount)}
+		res, err := handler.thriftClient.Call(tctx, req)
 		require.NoError(t, err)
 		err = gojson.Unmarshal([]byte(res.S2), &response)
+	} else if test.format == Raw {
+		//peer := handler.ch.Peers().GetOrAdd(handler.ch.PeerInfo().HostPort)
+		raw.Call(nil, nil, "", "", "", nil, nil)
 	}
 
 	span.Finish()
