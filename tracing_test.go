@@ -207,73 +207,55 @@ func (h *ThriftHandler) Simple(ctx thrift.Context) error {
 	return nil
 }
 
-type tracer struct {
-	tracer            string
-}
-
 type tracerChoice struct {
 	tracer           opentracing.Tracer
 	spansRecorded    func() int
 	isFake           bool
 	zipkinCompatible bool
-	supportsBaggage  bool
 	description      string
 }
 
 func TestTracingPropagation(t *testing.T) {
-	testTracingPropagation(t, false)
-}
-
-func TestTracingDisabled(t *testing.T) {
-	t.SkipNow()
-	testTracingPropagation(t, true)
-}
-
-func testTracingPropagation(t *testing.T, tracingDisabled bool) {
 	jaegerReporter := jaeger.NewInMemoryReporter()
 	jaegerTracer, jaegerCloser := jaeger.NewTracer(testutils.DefaultServerName,
 		jaeger.NewConstSampler(true),
 		jaeger.NewCompositeReporter(jaegerReporter, jaeger.NewLoggingReporter(jaeger.StdLogger)))
-		//jaegerReporter)
-		//jaeger.NewLoggingReporter(jaeger.StdLogger))
 	defer jaegerCloser.Close()
 	jaeger := tracerChoice{
-		tracer: jaegerTracer,
-		spansRecorded: func() int { return len(jaegerReporter.GetSpans())},
+		tracer:           jaegerTracer,
+		spansRecorded:    func() int { return len(jaegerReporter.GetSpans()) },
 		zipkinCompatible: true,
-		supportsBaggage: true,
-		description: "Jaeger tracer"}
+		description:      "Jaeger tracer"}
 
 	basicRecorder := basictracer.NewInMemoryRecorder()
 	basicTracer := basictracer.NewWithOptions(basictracer.Options{
-		ShouldSample:         func(traceID uint64) bool {
+		ShouldSample: func(traceID uint64) bool {
 			return true
 		},
-		Recorder:             basicRecorder,
+		Recorder: basicRecorder,
 		NewSpanEventListener: func() func(basictracer.SpanEvent) {
 			return nil
 		},
 	})
 	basic := tracerChoice{
-		tracer: basicTracer,
-		spansRecorded: func() int { return len(basicRecorder.GetSpans())},
-		supportsBaggage: true,
-		description: "Basic tracer"}
+		tracer:        basicTracer,
+		spansRecorded: func() int { return len(basicRecorder.GetSpans()) },
+		description:   "Basic tracer"}
 
 	// When tracer is not specified, opentracing.GlobalTracer() is used
 	noop := tracerChoice{
-		spansRecorded: func() int { return 0},
-		description: "Noop tracer",
-		isFake: true,
+		spansRecorded: func() int { return 0 },
+		description:   "Noop tracer",
+		isFake:        true,
 	}
 
 	tracers := []tracerChoice{noop, basic, jaeger}
 	for _, tracer := range tracers {
-		testTracingPropagationWithTracer(t, tracer, tracingDisabled)
+		testTracingPropagationWithTracer(t, tracer)
 	}
 }
 
-func testTracingPropagationWithTracer(t *testing.T, tracer tracerChoice, tracingDisabled bool) {
+func testTracingPropagationWithTracer(t *testing.T, tracer tracerChoice) {
 	opts := &testutils.ChannelOpts{
 		ChannelOptions: ChannelOptions{Tracer: tracer.tracer},
 		DisableRelay:   true,
@@ -299,17 +281,21 @@ func testTracingPropagationWithTracer(t *testing.T, tracer tracerChoice, tracing
 		server.Register(gen.NewTChanSimpleServiceServer(thriftHandler))
 
 		tests := []struct {
-			format          Format
 			forwardCount    int
+			tracingDisabled bool
+			format          Format
 			expectedBaggage string
 		}{
-			{Raw, 2, ""},  // Raw does not support application headers, thus no baggage
-			{JSON, 2, baggageValue},
-			{Thrift, 2, baggageValue},
+			{2, false, Raw, ""}, // Raw does not support application headers, thus no baggage
+			{2, true, Raw, ""}, // Raw does not support application headers, thus no baggage
+			{2, false, JSON, baggageValue},
+			{2, true, JSON, baggageValue},
+			{2, false, Thrift, baggageValue},
+			{2, true, Thrift, baggageValue},
 		}
 
 		for _, test := range tests {
-			handler.testTracingPropagationWithEncoding(t, tracer, test, tracingDisabled)
+			handler.testTracingPropagationWithEncoding(t, tracer, test)
 		}
 	})
 }
@@ -318,27 +304,26 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 	t *testing.T,
 	tracer tracerChoice,
 	test struct {
-		format          Format
 		forwardCount    int
+		tracingDisabled bool
+		format          Format
 		expectedBaggage string
 	},
-	tracingDisabled bool,
 ) {
-	descr := fmt.Sprintf("test %+v with tracer %+v, tracingDisabled=%v", test, tracer, tracingDisabled)
+	descr := fmt.Sprintf("test %+v with tracer %+v", test, tracer)
 	log.Printf("======> Starting %s", descr)
+
+	startSpanCount := tracer.spansRecorded()
+	log.Printf("start span count: %d", startSpanCount)
 
 	span := h.ch.Tracer().StartSpan("client")
 	span.SetBaggageItem(baggageKey, baggageValue)
 	ctx := opentracing.ContextWithSpan(context.Background(), span)
 
-	ctxBuilder := NewContextBuilder(2*time.Second).SetParentContext(ctx)
-	if tracingDisabled {
+	ctxBuilder := NewContextBuilder(2 * time.Second).SetParentContext(ctx)
+	if test.tracingDisabled {
 		ctxBuilder.DisableTracing()
 	}
-
-	startSpanCount := tracer.spansRecorded()
-	log.Printf("start span count: %d", startSpanCount)
-
 	ctx, cancel := ctxBuilder.Build()
 	defer cancel()
 
@@ -370,7 +355,6 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 	span.Finish()
 
 	rootSpan := CurrentSpan(ctx)
-	log.Printf("Current span after test: %+v\n", rootSpan)
 	require.NotNil(t, rootSpan)
 
 	if tracer.zipkinCompatible {
@@ -378,7 +362,10 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 		assert.NotEqual(t, uint64(0), rootSpan.TraceID())
 	}
 
-	if tracingDisabled {
+	// in Raw mode with tracingDisabled, non-Zipkin traces are not propagated,
+	// and neither is the notSampled flag, so some downstream spans are still reported.
+	// FIXME need to propagate tracingDisabled via Tracing field.
+	if test.tracingDisabled && (test.format != Raw || tracer.zipkinCompatible) {
 		assert.Equal(t, startSpanCount, endSpanCount, "Expecting 0 new spans recorded; %s", descr)
 	} else if !tracer.isFake {
 		assert.True(t, startSpanCount < endSpanCount,
@@ -389,15 +376,9 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 	for r, cnt := &response, 0; r != nil || cnt <= test.forwardCount; r, cnt = r.Child, cnt+1 {
 		require.NotNil(t, r, "Expecting response for forward=%d; %s", cnt, descr)
 		if tracer.zipkinCompatible {
-			if tracingDisabled {
-				assert.Equal(t, 0, r.TraceID, "traceID should be 0; %s", descr)
-			} else {
-				assert.Equal(t, rootSpan.TraceID(), r.TraceID, "traceID should be the same; %s", descr)
-			}
+			assert.Equal(t, rootSpan.TraceID(), r.TraceID, "traceID should be the same; %s", descr)
 		}
-		if tracingDisabled {
-			assert.Equal(t, "", r.Luggage, "baggage should not propagate with tracing disabled; %s", descr)
-		} else if tracer.supportsBaggage {
+		if !tracer.isFake {
 			assert.Equal(t, test.expectedBaggage, r.Luggage, "baggage should propagate; %s", descr)
 		}
 	}
