@@ -22,9 +22,9 @@ imports:
 - name: github.com/jessevdk/go-flags
   version: f2785f5820ec967043de79c8be97edfc464ca745
 - name: github.com/opentracing/basictracer-go
-  version: bc2e227fd86b4ef26adaac4b21f78523127150b5
+  version: 54a2279302e12cf6c08234574f699c970059ca30
 - name: github.com/opentracing/opentracing-go
-  version: b228439c64c2c323dec3ebd9d445f168d4fae60c
+  version: b8840d2500f77035f8475e2cdde65b529c5bd17b
   subpackages:
   - ext
 - name: github.com/pmezard/go-difflib
