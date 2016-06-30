@@ -310,14 +310,15 @@ func (response *OutboundCallResponse) doneReading(unexpected error) {
 	isSuccess := unexpected == nil && !response.ApplicationError()
 	lastAttempt := isSuccess || !response.requestState.HasRetries(unexpected)
 
-	span := response.span
-	if !isSuccess {
-		span.SetTag("error", true)
+	if span := response.span; span != nil {
+		if !isSuccess {
+			span.SetTag("error", true)
+		}
+		if unexpected != nil {
+			span.LogEventWithPayload("error", unexpected)
+		}
+		span.FinishWithOptions(opentracing.FinishOptions{FinishTime: now})
 	}
-	if unexpected != nil {
-		span.LogEventWithPayload("error", unexpected)
-	}
-	span.FinishWithOptions(opentracing.FinishOptions{FinishTime: now})
 
 	latency := now.Sub(response.startedAt)
 	response.statsReporter.RecordTimer("outbound.calls.per-attempt.latency", response.commonStatsTags, latency)

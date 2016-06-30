@@ -64,6 +64,7 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 
 	call := new(InboundCall)
 	call.conn = c
+	// TODO used to propagate tracingDisabled
 	ctx, cancel := newIncomingContext(call, callReq.TimeToLive)
 
 	if !c.pendingExchangeMethodAdd() {
@@ -92,7 +93,7 @@ func (c *Connection) handleCallReq(frame *Frame) bool {
 	response.call = call
 	response.calledAt = now
 	response.timeNow = c.timeNow
-	response.span = c.extractInboundSpan(callReq) // TODO may return nil
+	response.span = c.extractInboundSpan(callReq)
 	if response.span != nil {
 		mex.ctx = opentracing.ContextWithSpan(mex.ctx, response.span)
 	}

@@ -123,6 +123,9 @@ func (s *Span) initFromOpenTracing(span opentracing.Span) {
 }
 
 func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodName string, call *OutboundCall, startTime time.Time) opentracing.Span {
+	if isTracingDisabled(ctx) {
+		return nil
+	}
 	parentSpan := opentracing.SpanFromContext(ctx)
 	log.Printf("parent span %+v", parentSpan)
 	span := c.Tracer().StartSpanWithOptions(opentracing.StartSpanOptions{
