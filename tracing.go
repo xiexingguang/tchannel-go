@@ -138,9 +138,6 @@ func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodN
 	ext.PeerService.Set(span, serviceName)
 	setPeerHostPort(span, c.remotePeerInfo.HostPort)
 	span.SetTag("as", call.callReq.Headers[ArgScheme])
-	if isTracingDisabled(ctx) {
-		ext.SamplingPriority.Set(span, 0)
-	}
 	call.callReq.Tracing.initFromOpenTracing(span)
 	return span
 }
