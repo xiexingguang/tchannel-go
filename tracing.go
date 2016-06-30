@@ -123,9 +123,6 @@ func (s *Span) initFromOpenTracing(span opentracing.Span) {
 }
 
 func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodName string, call *OutboundCall, startTime time.Time) opentracing.Span {
-	if isTracingDisabled(ctx) {
-		return nil
-	}
 	parentSpan := opentracing.SpanFromContext(ctx)
 	log.Printf("parent span %+v", parentSpan)
 	span := c.Tracer().StartSpanWithOptions(opentracing.StartSpanOptions{
@@ -133,6 +130,9 @@ func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodN
 		Parent:        parentSpan,
 		StartTime:     startTime,
 	})
+	if isTracingDisabled(ctx) {
+		ext.SamplingPriority.Set(span, 0)
+	}
 	log.Printf("child span %+v", span)
 	ext.SpanKind.Set(span, ext.SpanKindRPCClient)
 	ext.PeerService.Set(span, serviceName)
@@ -179,11 +179,6 @@ func (c *Connection) extractInboundSpan(callReq *callReq) opentracing.Span {
 	return nil
 }
 
-// TODO temporary adapter to access non-standard baggage iterator interface
-type baggageIterator interface {
-	ForeachBaggageItem(handler func(k, v string))
-}
-
 // ExtractInboundSpan deserializes tracing span from the incoming `headers`.
 // If the response object already contains a pre-deserialized span (only for
 // Zipkin-compatible tracers), then the baggage is extracted from the headers
@@ -199,14 +194,10 @@ func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[stri
 			// TODO right now we're creating a second span. Once PR #82 lands in opentracing-go,
 			// we'll only extract the SpanContext, which will directly support ForeachBaggageItem
 			if sp, _ := tracer.Join(operationName, opentracing.TextMap, carrier); sp != nil {
-				if bsp, ok := sp.(baggageIterator); ok {
-					log.Printf("copying baggage from %+v\n", bsp)
-					bsp.ForeachBaggageItem(func(k, v string) {
-						span.SetBaggageItem(k, v)
-					})
-				} else {
-					// TODO after PR #82, we should never reach this point
-				}
+				sp.ForeachBaggageItem(func(k, v string) bool {
+					span.SetBaggageItem(k, v)
+					return true
+				})
 			}
 		}
 	} else {
