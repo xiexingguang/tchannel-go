@@ -22,14 +22,16 @@ package tchannel
 
 import (
 	"fmt"
-
 	"log"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	"golang.org/x/net/context"
 
+	"github.com/uber/tchannel-go/trand"
 	"github.com/uber/tchannel-go/typed"
 )
 
@@ -39,9 +41,7 @@ import (
 const ZipkinSpanFormat string = "zipkin-span-format"
 
 // Span is an internal representation of Zipkin-compatible OpenTracing Span.
-// It can be used as OpenTracing inject/extract Carrier.
-//
-// TODO extend span serialization to support non-Zipkin-like tracing systems.
+// It is used as OpenTracing inject/extract Carrier with ZipkinSpanFormat.
 type Span struct {
 	traceID  uint64
 	parentID uint64
@@ -49,8 +49,11 @@ type Span struct {
 	flags    byte
 }
 
+// traceRng is a thread-safe random number generator for generating trace IDs.
+var traceRng = trand.NewSeeded()
+
 func (s Span) String() string {
-	return fmt.Sprintf("TraceID=%d,ParentID=%d,SpanID=%d", s.traceID, s.parentID, s.spanID)
+	return fmt.Sprintf("TraceID=%x,ParentID=%x,SpanID=%x", s.traceID, s.parentID, s.spanID)
 }
 
 func (s *Span) read(r *typed.ReadBuffer) error {
@@ -67,6 +70,12 @@ func (s *Span) write(w *typed.WriteBuffer) error {
 	w.WriteUint64(s.traceID)
 	w.WriteSingleByte(s.flags)
 	return w.Err()
+}
+
+func (s *Span) initRandom() {
+	s.traceID = uint64(traceRng.Int63())
+	s.spanID = s.traceID
+	s.parentID = 0
 }
 
 // TraceID returns the trace id for the entire call graph of requests. Established
@@ -108,8 +117,8 @@ func CurrentSpan(ctx context.Context) *Span {
 // initFromOpenTracing initializes Span fields from an OpenTracing Span,
 // assuming the tracing implementation supports Zipkin-style span IDs.
 func (s *Span) initFromOpenTracing(span opentracing.Span) {
-	if err := span.Tracer().Inject(span, ZipkinSpanFormat, s); err != nil && err != opentracing.ErrUnsupportedFormat {
-		// TODO log error?
+	if err := span.Tracer().Inject(span, ZipkinSpanFormat, s); err != nil {
+		s.initRandom()
 	}
 }
 
@@ -124,7 +133,7 @@ func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodN
 	log.Printf("child span %+v", span)
 	ext.SpanKind.Set(span, ext.SpanKindRPCClient)
 	ext.PeerService.Set(span, serviceName)
-	ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
+	setPeerHostPort(span, c.remotePeerInfo.HostPort)
 	span.SetTag("as", call.callReq.Headers[ArgScheme])
 	if isTracingDisabled(ctx) {
 		ext.SamplingPriority.Set(span, 0)
@@ -144,28 +153,26 @@ func InjectOutboundSpan(response *OutboundCallResponse, headers map[string]strin
 	}
 	carrier := opentracing.TextMapCarrier(headers)
 	if err := span.Tracer().Inject(span, opentracing.TextMap, carrier); err == nil {
-		// TODO log error?
 		return headers
 	}
 	return headers
 }
 
 func (c *Connection) extractInboundSpan(callReq *callReq) opentracing.Span {
-	log.Printf("incoming TChannel span: %+v", callReq.Tracing) // TODO remove
+	log.Printf("incoming TChannel span: %+v", callReq.Tracing)
 	span, err := c.Tracer().Join("", ZipkinSpanFormat, &callReq.Tracing)
 	if span != nil {
 		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
 		ext.PeerService.Set(span, callReq.Headers[CallerName])
 		span.SetTag("as", callReq.Headers[ArgScheme])
-		ext.PeerHostname.Set(span, c.remotePeerInfo.HostPort) // TODO split host:port
-		log.Printf("inbound span extracted: %+v", span)       // TODO remove
+		setPeerHostPort(span, c.remotePeerInfo.HostPort)
+		log.Printf("inbound span extracted: %+v", span)
 		return span
 	}
-	log.Printf("unable to parse span: %+v", err) // TODO remove
-	if err != opentracing.ErrUnsupportedFormat {
-		logTracingError(c.log, "Failed to extract Zipkin-style span", err)
+	log.Printf("unable to parse span: %+v", err)
+	if err != opentracing.ErrUnsupportedFormat && err != opentracing.ErrTraceNotFound {
+		c.log.Error("Failed to extract Zipkin-style span: " + err.Error())
 	}
-	// TODO decide if we can leave with nil span. Assigning Noop span causes panic in the tracer.
 	return nil
 }
 
@@ -211,11 +218,18 @@ func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[stri
 		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
 		ext.PeerService.Set(span, call.CallerName())
 		span.SetTag("as", "json")
-		ext.PeerHostname.Set(span, call.RemotePeer().HostPort) // TODO split host:port
+		setPeerHostPort(span, call.RemotePeer().HostPort)
 	}
 	return opentracing.ContextWithSpan(ctx, span)
 }
 
-func logTracingError(logger Logger, message string, err error) {
-	// TODO do we want to log tracing errors, like failures to extract/inject spans?
+func setPeerHostPort(span opentracing.Span, hostPort string) {
+	if host, port, err := net.SplitHostPort(hostPort); err == nil {
+		ext.PeerHostname.Set(span, host)
+		if p, err := strconv.Atoi(port); err == nil {
+			ext.PeerPort.Set(span, uint16(p))
+		}
+	} else {
+		span.SetTag(string(ext.PeerHostIPv4), host)
+	}
 }
