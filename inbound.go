@@ -309,7 +309,7 @@ type InboundCallResponse struct {
 	applicationError bool
 	systemError      bool
 	headers          transportHeaders
-	span             opentracing.Span // TODO another option is to store this on the Call object
+	span             opentracing.Span
 	statsReporter    StatsReporter
 	commonStatsTags  map[string]string
 }
@@ -334,9 +334,6 @@ func (response *InboundCallResponse) SendSystemError(err error) error {
 
 	span := CurrentSpan(response.mex.ctx)
 	if span == nil {
-		// TODO this breaks the tests. Since span generation is delegated to OpenTracing now,
-		// if no tracer is configured it's possible to have no span, and imo should not be an error
-		// response.log.Error("Missing span when sending system error")
 		span = &Span{}
 	}
 

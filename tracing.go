@@ -22,7 +22,7 @@ package tchannel
 
 import (
 	"fmt"
-	"log"
+	"log" // TODO remove logging
 	"net"
 	"strconv"
 	"time"
@@ -182,8 +182,9 @@ type baggageIterator interface {
 }
 
 // ExtractInboundSpan deserializes tracing span from the incoming `headers`.
-// If the response object already contains a pre-deserialized span (only for Zipkin-compatible tracers),
-// then the baggage is extracted from the headers and added to that span.
+// If the response object already contains a pre-deserialized span (only for
+// Zipkin-compatible tracers), then the baggage is extracted from the headers
+// and added to that span.
 func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[string]string, tracer opentracing.Tracer) context.Context {
 	var span = call.Response().span
 	operationName := call.ServiceName() + "::" + call.MethodString()
@@ -217,7 +218,7 @@ func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[stri
 		}
 		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
 		ext.PeerService.Set(span, call.CallerName())
-		span.SetTag("as", "json")
+		span.SetTag("as", string(call.Format()))
 		setPeerHostPort(span, call.RemotePeer().HostPort)
 	}
 	return opentracing.ContextWithSpan(ctx, span)
