@@ -47,6 +47,10 @@ type ContextBuilder struct {
 	// ConnectTimeout is the timeout for creating a TChannel connection.
 	ConnectTimeout time.Duration
 
+	// hideListeningOnOutbound disables sending the listening server's host:port
+	// when creating new outgoing connections.
+	hideListeningOnOutbound bool
+
 	// ParentContext to build the new context from. If empty, context.Background() is used.
 	// The new (child) context inherits a number of properties from the parent context:
 	//   - context fields, accessible via `ctx.Value(key)`
@@ -128,6 +132,13 @@ func (cb *ContextBuilder) SetConnectTimeout(d time.Duration) *ContextBuilder {
 	return cb
 }
 
+// HideListeningOnOutbound hides the host:port when creating new outbound
+// connections.
+func (cb *ContextBuilder) HideListeningOnOutbound() *ContextBuilder {
+	cb.hideListeningOnOutbound = true
+	return cb
+}
+
 // DisableTracing disables tracing.
 func (cb *ContextBuilder) DisableTracing() *ContextBuilder {
 	cb.TracingDisabled = true
@@ -189,11 +200,12 @@ func (cb *ContextBuilder) getHeaders() map[string]string {
 // Build returns a ContextWithHeaders that can be used to make calls.
 func (cb *ContextBuilder) Build() (ContextWithHeaders, context.CancelFunc) {
 	params := &tchannelCtxParams{
-		options:         cb.CallOptions,
-		call:            cb.incomingCall,
-		retryOptions:    cb.RetryOptions,
-		connectTimeout:  cb.ConnectTimeout,
-		tracingDisabled: cb.TracingDisabled,
+		options:                 cb.CallOptions,
+		call:                    cb.incomingCall,
+		retryOptions:            cb.RetryOptions,
+		connectTimeout:          cb.ConnectTimeout,
+		tracingDisabled:         cb.TracingDisabled,
+		hideListeningOnOutbound: cb.hideListeningOnOutbound,
 	}
 
 	parent := cb.ParentContext
