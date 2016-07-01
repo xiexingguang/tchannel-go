@@ -140,6 +140,13 @@ func (h *traceHandler) handleCall(
 		resp.SpanID = span.SpanID()
 		resp.ParentID = span.ParentID()
 		resp.TracingEnabled = span.Flags()&1 == 1
+	} else if span := opentracing.SpanFromContext(ctx); span != nil {
+		if basicSpan, ok := span.(basictracer.Span); ok {
+			resp.TraceID = basicSpan.Context().TraceID
+			resp.SpanID = basicSpan.Context().SpanID
+			resp.ParentID = basicSpan.Context().ParentSpanID
+			resp.TracingEnabled = basicSpan.Context().Sampled
+		}
 	}
 
 	if span := opentracing.SpanFromContext(ctx); span != nil {
@@ -207,12 +214,30 @@ func (h *ThriftHandler) Simple(ctx thrift.Context) error {
 	return nil
 }
 
+type TracerType string
+
+const (
+	Noop   TracerType = "NOOP"
+	Basic  TracerType = "BASIC"
+	Jaeger TracerType = "JAEGER"
+)
+
 type tracerChoice struct {
+	tracerType       TracerType
 	tracer           opentracing.Tracer
 	spansRecorded    func() int
+	resetSpans       func()
 	isFake           bool
 	zipkinCompatible bool
-	description      string
+}
+
+type basicTracerLoggingRecorder struct {
+	recorder basictracer.SpanRecorder
+}
+
+func (r *basicTracerLoggingRecorder) RecordSpan(span basictracer.RawSpan) {
+	log.Printf("Basic tracer recording span %+v", span)
+	r.recorder.RecordSpan(span)
 }
 
 func TestTracingPropagation(t *testing.T) {
@@ -222,37 +247,48 @@ func TestTracingPropagation(t *testing.T) {
 		jaeger.NewCompositeReporter(jaegerReporter, jaeger.NewLoggingReporter(jaeger.StdLogger)))
 	defer jaegerCloser.Close()
 	jaeger := tracerChoice{
+		tracerType:       Jaeger,
 		tracer:           jaegerTracer,
 		spansRecorded:    func() int { return len(jaegerReporter.GetSpans()) },
-		zipkinCompatible: true,
-		description:      "Jaeger tracer"}
+		resetSpans:       func() { jaegerReporter.Reset() },
+		zipkinCompatible: true}
 
 	basicRecorder := basictracer.NewInMemoryRecorder()
 	basicTracer := basictracer.NewWithOptions(basictracer.Options{
 		ShouldSample: func(traceID uint64) bool {
 			return true
 		},
-		Recorder: basicRecorder,
+		Recorder: &basicTracerLoggingRecorder{basicRecorder},
 		NewSpanEventListener: func() func(basictracer.SpanEvent) {
 			return nil
 		},
 	})
 	basic := tracerChoice{
+		tracerType:    Basic,
 		tracer:        basicTracer,
 		spansRecorded: func() int { return len(basicRecorder.GetSampledSpans()) },
-		description:   "Basic tracer"}
+		resetSpans:    func() { basicRecorder.Reset() },
+	}
 
 	// When tracer is not specified, opentracing.GlobalTracer() is used
 	noop := tracerChoice{
+		tracerType:    Noop,
 		spansRecorded: func() int { return 0 },
-		description:   "Noop tracer",
-		isFake:        true,
-	}
+		resetSpans:    func() {},
+		isFake:        true}
 
 	tracers := []tracerChoice{noop, basic, jaeger}
 	for _, tracer := range tracers {
 		testTracingPropagationWithTracer(t, tracer)
 	}
+}
+
+type propagationTest struct {
+	forwardCount      int
+	tracingDisabled   bool
+	format            Format
+	expectedBaggage   string
+	expectedSpanCount map[TracerType]int
 }
 
 func testTracingPropagationWithTracer(t *testing.T, tracer tracerChoice) {
@@ -280,18 +316,30 @@ func testTracingPropagationWithTracer(t *testing.T, tracer tracerChoice) {
 		thriftHandler := &ThriftHandler{*handler}
 		server.Register(gen.NewTChanSimpleServiceServer(thriftHandler))
 
-		tests := []struct {
-			forwardCount    int
-			tracingDisabled bool
-			format          Format
-			expectedBaggage string
-		}{
-			{2, false, Raw, ""}, // Raw does not support application headers, thus no baggage
-			{2, true, Raw, ""},  // Raw does not support application headers, thus no baggage
-			{2, false, JSON, baggageValue},
-			{2, true, JSON, baggageValue},
-			{2, false, Thrift, baggageValue},
-			{2, true, Thrift, baggageValue},
+		tests := []propagationTest{
+			// Raw encoding does not support application headers, thus no baggage can be propagated
+			{2, false, Raw, "", map[TracerType]int{
+				Noop: 0,
+				// Since Raw encoding does not propagate generic traces, we record 3 spans
+				// for outbound calls, but none for inbound calls.
+				Basic: 3,
+				// Since Jaeger is Zipkin-compatible, it is able to decode the trace
+				// even from the Raw encoding.
+				Jaeger: 6}},
+			{2, true, Raw, "", map[TracerType]int{
+				Noop: 0,
+				// Since Raw encoding does not propagate generic traces, the tracingDisable
+				// only affects the first outbound span (it's not sampled), but the other
+				// two outbound spans are still sampled and recorded.
+				Basic:  2,
+				Jaeger: 0}},
+			// In the rest of the tests both generic and Zipkin-compatible tracers are able
+			// to propagate full trace information, so the number of sampled spans is:
+			// (1 client + 1 server) * (3 hops) = 6
+			{2, false, JSON, baggageValue, map[TracerType]int{Noop: 0, Basic: 6, Jaeger: 6}},
+			{2, true, JSON, baggageValue, map[TracerType]int{Noop: 0, Basic: 0, Jaeger: 0}},
+			{2, false, Thrift, baggageValue, map[TracerType]int{Noop: 0, Basic: 6, Jaeger: 6}},
+			{2, true, Thrift, baggageValue, map[TracerType]int{Noop: 0, Basic: 0, Jaeger: 0}},
 		}
 
 		for _, test := range tests {
@@ -303,18 +351,13 @@ func testTracingPropagationWithTracer(t *testing.T, tracer tracerChoice) {
 func (h *traceHandler) testTracingPropagationWithEncoding(
 	t *testing.T,
 	tracer tracerChoice,
-	test struct {
-		forwardCount    int
-		tracingDisabled bool
-		format          Format
-		expectedBaggage string
-	},
+	test propagationTest,
 ) {
 	descr := fmt.Sprintf("test %+v with tracer %+v", test, tracer)
-	log.Printf("======> Starting %s", descr)
+	log.Print("")
+	log.Printf("======> STARTING %s", descr)
 
-	startSpanCount := tracer.spansRecorded()
-	log.Printf("start span count: %d", startSpanCount)
+	tracer.resetSpans()
 
 	span := h.ch.Tracer().StartSpan("client")
 	span.SetBaggageItem(baggageKey, baggageValue)
@@ -347,8 +390,8 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 	}
 	log.Printf("Top test response %+v", response)
 
-	endSpanCount := tracer.spansRecorded()
-	log.Printf("end span count: %d", endSpanCount)
+	spanCount := tracer.spansRecorded()
+	log.Printf("end span count: %d", spanCount)
 
 	// finish span after taking count of recorded spans, as we're only interested
 	// in the count of spans created by RPC calls.
@@ -364,12 +407,11 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 
 	// TODO in Raw mode with tracingDisabled, non-Zipkin traces are not propagated,
 	// and neither is the notSampled flag, so some downstream spans are still reported.
+	expectedSpanCount := test.expectedSpanCount[tracer.tracerType]
 	if test.tracingDisabled && (test.format != Raw || tracer.zipkinCompatible) {
-		assert.Equal(t, startSpanCount, endSpanCount, "Expecting 0 new spans recorded; %s", descr)
+		require.Equal(t, expectedSpanCount, spanCount, "Expecting span count; %s", descr)
 	} else if !tracer.isFake {
-		assert.True(t, startSpanCount < endSpanCount,
-			"Expecting span counts old=%d < new=%d; %s",
-			startSpanCount, endSpanCount, descr)
+		require.Equal(t, expectedSpanCount, spanCount, "Expecting span count; %s", descr)
 	}
 
 	for r, cnt := &response, 0; r != nil || cnt <= test.forwardCount; r, cnt = r.Child, cnt+1 {
@@ -401,126 +443,3 @@ func TestTracingInjectorExtractor(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sp2)
 }
-
-//func TestTraceReportingEnabled(t *testing.T) {
-//	initialTime := time.Date(2015, 2, 1, 10, 10, 0, 0, time.UTC)
-//
-//	var state struct {
-//		signal chan struct{}
-//
-//		call TraceData
-//		span Span
-//	}
-//	testTraceReporter := TraceReporterFunc(func(data TraceData) {
-//		defer close(state.signal)
-//
-//		span := data.Span
-//		data.Span = Span{}
-//		state.call = data
-//		state.span = span
-//	})
-//
-//	traceReporterOpts := testutils.NewOpts().SetTraceReporter(testTraceReporter)
-//	tests := []struct {
-//		name       string
-//		serverOpts *testutils.ChannelOpts
-//		clientOpts *testutils.ChannelOpts
-//		expected   []Annotation
-//		fromServer bool
-//	}{
-//		{
-//			name:       "inbound",
-//			serverOpts: traceReporterOpts,
-//			expected: []Annotation{
-//				{Key: "sr", Timestamp: initialTime.Add(2 * time.Second)},
-//				{Key: "ss", Timestamp: initialTime.Add(3 * time.Second)},
-//			},
-//			fromServer: true,
-//		},
-//		{
-//			name:       "outbound",
-//			clientOpts: traceReporterOpts,
-//			expected: []Annotation{
-//				{Key: "cs", Timestamp: initialTime.Add(time.Second)},
-//				{Key: "cr", Timestamp: initialTime.Add(6 * time.Second)},
-//			},
-//		},
-//	}
-//
-//	for _, tt := range tests {
-//		serverNow, serverNowFn := testutils.NowStub(initialTime.Add(time.Second))
-//		clientNow, clientNowFn := testutils.NowStub(initialTime)
-//		serverNowFn(time.Second)
-//		clientNowFn(time.Second)
-//
-//		// Note: we disable the relay as the relay shares the same options
-//		// and since the relay would call timeNow, it causes a mismatch in
-//		// the expected timestamps.
-//		tt.serverOpts = testutils.DefaultOpts(tt.serverOpts).SetTimeNow(serverNow).NoRelay()
-//		tt.clientOpts = testutils.DefaultOpts(tt.clientOpts).SetTimeNow(clientNow)
-//
-//		WithVerifiedServer(t, tt.serverOpts, func(ch *Channel, hostPort string) {
-//			state.signal = make(chan struct{})
-//
-//			testutils.RegisterEcho(ch, func() {
-//				clientNowFn(5 * time.Second)
-//			})
-//
-//			clientCh := testutils.NewClient(t, tt.clientOpts)
-//			defer clientCh.Close()
-//			ctx, cancel := NewContext(time.Second)
-//			defer cancel()
-//
-//			_, _, _, err := raw.Call(ctx, clientCh, hostPort, ch.PeerInfo().ServiceName, "echo", nil, []byte("arg3"))
-//			require.NoError(t, err, "raw.Call failed")
-//
-//			binaryAnnotations := []BinaryAnnotation{
-//				{"cn", clientCh.PeerInfo().ServiceName},
-//				{"as", Raw.String()},
-//			}
-//			target := TraceEndpoint{
-//				HostPort:    hostPort,
-//				ServiceName: ch.ServiceName(),
-//			}
-//			source := target
-//			if !tt.fromServer {
-//				source = TraceEndpoint{
-//					HostPort:    "0.0.0.0:0",
-//					ServiceName: clientCh.ServiceName(),
-//				}
-//			}
-//
-//			select {
-//			case <-state.signal:
-//			case <-time.After(time.Second):
-//				t.Fatalf("Did not receive trace report within timeout")
-//			}
-//
-//			expected := TraceData{Annotations: tt.expected, BinaryAnnotations: binaryAnnotations, Source: source, Target: target, Method: "echo"}
-//			assert.Equal(t, expected, state.call, "%v: Report args mismatch", tt.name)
-//			curSpan := CurrentSpan(ctx)
-//			assert.Equal(t, NewSpan(curSpan.TraceID(), curSpan.TraceID(), 0), state.span, "Span mismatch")
-//		})
-//	}
-//}
-
-//func TestTraceReportingDisabled(t *testing.T) {
-//	var gotCalls int
-//	testTraceReporter := TraceReporterFunc(func(_ TraceData) {
-//		gotCalls++
-//	})
-//
-//	traceReporterOpts := testutils.NewOpts().SetTraceReporter(testTraceReporter)
-//	WithVerifiedServer(t, traceReporterOpts, func(ch *Channel, hostPort string) {
-//		ch.Register(raw.Wrap(newTestHandler(t)), "echo")
-//
-//		ctx, cancel := NewContext(time.Second)
-//		defer cancel()
-//
-//		CurrentSpan(ctx).EnableTracing(false)
-//		_, _, _, err := raw.Call(ctx, ch, hostPort, ch.PeerInfo().ServiceName, "echo", nil, []byte("arg3"))
-//		require.NoError(t, err, "raw.Call failed")
-//
-//		assert.Equal(t, 0, gotCalls, "TraceReporter should not report if disabled")
-//	})
-//}

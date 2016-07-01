@@ -198,6 +198,7 @@ func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[stri
 			}
 		}
 	} else {
+		log.Printf("Trying to extract span from app headers %+v", headers)
 		if headers != nil {
 			carrier := opentracing.TextMapCarrier(headers)
 			if sp, _ := tracer.Join(operationName, opentracing.TextMap, carrier); sp != nil {
@@ -211,6 +212,7 @@ func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[stri
 		ext.PeerService.Set(span, call.CallerName())
 		span.SetTag("as", string(call.Format()))
 		setPeerHostPort(span, call.RemotePeer().HostPort)
+		call.Response().span = span
 	}
 	return opentracing.ContextWithSpan(ctx, span)
 }
