@@ -1,5 +1,5 @@
 hash: 0e6cd97b3b2b3dfd48cb6f316a41d9868c6da0f3ba8ea4338956a679d64c9221
-updated: 2016-06-28T13:08:37.852989322-04:00
+updated: 2016-07-01T12:22:08.888669734-04:00
 imports:
 - name: github.com/apache/thrift
   version: 0e9fed1e12ed066865e46c6903782b2ef95f4650
@@ -50,9 +50,9 @@ imports:
 - name: github.com/uber-go/atomic
   version: e682c1008ac17bf26d2e4b5ad6cdd08520ed0b22
 - name: github.com/uber/jaeger-client-go
-  version: cdb6629b30315e3138ee8ac900995f1b9666f9c0
+  version: c36eff80b83d66ce29e800206de5c6e1af274232
 - name: golang.org/x/net
-  version: 04557861f124410b768b1ba5bb3a91b705afbfc6
+  version: b400c2eff1badec7022a8c8f5bea058b6315eed7
   subpackages:
   - context
 - name: gopkg.in/yaml.v2
