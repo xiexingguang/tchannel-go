@@ -288,7 +288,7 @@ type propagationTest struct {
 	tracingDisabled   bool
 	format            Format
 	expectedBaggage   string
-	expectedSpanCount map[TracerType]int
+	expectedSpanCount int
 }
 
 func testTracingPropagationWithTracer(t *testing.T, tracer tracerChoice) {
@@ -316,33 +316,52 @@ func testTracingPropagationWithTracer(t *testing.T, tracer tracerChoice) {
 		thriftHandler := &ThriftHandler{*handler}
 		server.Register(gen.NewTChanSimpleServiceServer(thriftHandler))
 
-		tests := []propagationTest{
+		type SpanCountMapping map[TracerType]int
+		defaultTracingEnabledCounts := SpanCountMapping{Noop: 0, Basic: 6, Jaeger: 6}
+		defaultTracingDisabledCounts := SpanCountMapping{Noop: 0, Basic: 0, Jaeger: 0}
+		tests := []struct {
+			forwardCount                     int
+			format                           Format
+			expectedBaggage                  string
+			expectedSpanCountTracingEnabled  SpanCountMapping
+			expectedSpanCountTracingDisabled SpanCountMapping
+		}{
 			// Raw encoding does not support application headers, thus no baggage can be propagated
-			{2, false, Raw, "", map[TracerType]int{
-				Noop: 0,
-				// Since Raw encoding does not propagate generic traces, we record 3 spans
-				// for outbound calls, but none for inbound calls.
-				Basic: 3,
-				// Since Jaeger is Zipkin-compatible, it is able to decode the trace
-				// even from the Raw encoding.
-				Jaeger: 6}},
-			{2, true, Raw, "", map[TracerType]int{
-				Noop: 0,
-				// Since Raw encoding does not propagate generic traces, the tracingDisable
-				// only affects the first outbound span (it's not sampled), but the other
-				// two outbound spans are still sampled and recorded.
-				Basic:  2,
-				Jaeger: 0}},
+			{2, Raw, "",
+				map[TracerType]int{
+					Noop: 0,
+					// Since Raw encoding does not propagate generic traces, we record 3 spans
+					// for outbound calls, but none for inbound calls.
+					Basic: 3,
+					// Since Jaeger is Zipkin-compatible, it is able to decode the trace
+					// even from the Raw encoding.
+					Jaeger: 6},
+				map[TracerType]int{
+					Noop: 0,
+					// Since Raw encoding does not propagate generic traces, the tracingDisable
+					// only affects the first outbound span (it's not sampled), but the other
+					// two outbound spans are still sampled and recorded.
+					Basic:  2,
+					Jaeger: 0}},
 			// In the rest of the tests both generic and Zipkin-compatible tracers are able
 			// to propagate full trace information, so the number of sampled spans is:
 			// (1 client + 1 server) * (3 hops) = 6
-			{2, false, JSON, baggageValue, map[TracerType]int{Noop: 0, Basic: 6, Jaeger: 6}},
-			{2, true, JSON, baggageValue, map[TracerType]int{Noop: 0, Basic: 0, Jaeger: 0}},
-			{2, false, Thrift, baggageValue, map[TracerType]int{Noop: 0, Basic: 6, Jaeger: 6}},
-			{2, true, Thrift, baggageValue, map[TracerType]int{Noop: 0, Basic: 0, Jaeger: 0}},
+			{2, JSON, baggageValue, defaultTracingEnabledCounts, defaultTracingDisabledCounts},
+			{2, Thrift, baggageValue, defaultTracingEnabledCounts, defaultTracingDisabledCounts},
 		}
 
-		for _, test := range tests {
+		for _, tt := range tests {
+			test := propagationTest{
+				forwardCount:      tt.forwardCount,
+				tracingDisabled:   false,
+				format:            tt.format,
+				expectedBaggage:   tt.expectedBaggage,
+				expectedSpanCount: tt.expectedSpanCountTracingEnabled[tracer.tracerType]}
+
+			handler.testTracingPropagationWithEncoding(t, tracer, test)
+
+			test.tracingDisabled = true
+			test.expectedSpanCount = tt.expectedSpanCountTracingDisabled[tracer.tracerType]
 			handler.testTracingPropagationWithEncoding(t, tracer, test)
 		}
 	})
@@ -390,6 +409,15 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 	}
 	log.Printf("Top test response %+v", response)
 
+	// Spans are finished in inbound.doneSending() or outbound.doneReading(),
+	// which are called on different go-routines and may execute *after* the
+	// response has been received by the client. Give them a chance to run.
+	for i := 0; i < 100; i++ {
+		if spanCount := tracer.spansRecorded(); spanCount == test.expectedSpanCount {
+			break
+		}
+		time.Sleep(time.Millisecond) // max wait: 100ms
+	}
 	spanCount := tracer.spansRecorded()
 	log.Printf("end span count: %d", spanCount)
 
@@ -405,14 +433,7 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 		assert.NotEqual(t, uint64(0), rootSpan.TraceID())
 	}
 
-	// TODO in Raw mode with tracingDisabled, non-Zipkin traces are not propagated,
-	// and neither is the notSampled flag, so some downstream spans are still reported.
-	expectedSpanCount := test.expectedSpanCount[tracer.tracerType]
-	if test.tracingDisabled && (test.format != Raw || tracer.zipkinCompatible) {
-		require.Equal(t, expectedSpanCount, spanCount, "Expecting span count; %s", descr)
-	} else if !tracer.isFake {
-		require.Equal(t, expectedSpanCount, spanCount, "Expecting span count; %s", descr)
-	}
+	assert.Equal(t, test.expectedSpanCount, spanCount, "Wrong span count; %s", descr)
 
 	for r, cnt := &response, 0; r != nil || cnt <= test.forwardCount; r, cnt = r.Child, cnt+1 {
 		require.NotNil(t, r, "Expecting response for forward=%d; %s", cnt, descr)
