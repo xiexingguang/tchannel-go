@@ -36,7 +36,7 @@ const (
 )
 
 type tchannelCtxParams struct {
-	tracingDisabled bool
+	tracingDisabled         bool
 	call                    IncomingCall
 	options                 *CallOptions
 	retryOptions            *RetryOptions

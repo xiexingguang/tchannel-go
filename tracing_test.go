@@ -239,7 +239,7 @@ func TestTracingPropagation(t *testing.T) {
 	})
 	basic := tracerChoice{
 		tracer:        basicTracer,
-		spansRecorded: func() int { return len(basicRecorder.GetSpans()) },
+		spansRecorded: func() int { return len(basicRecorder.GetSampledSpans()) },
 		description:   "Basic tracer"}
 
 	// When tracer is not specified, opentracing.GlobalTracer() is used
@@ -287,7 +287,7 @@ func testTracingPropagationWithTracer(t *testing.T, tracer tracerChoice) {
 			expectedBaggage string
 		}{
 			{2, false, Raw, ""}, // Raw does not support application headers, thus no baggage
-			{2, true, Raw, ""}, // Raw does not support application headers, thus no baggage
+			{2, true, Raw, ""},  // Raw does not support application headers, thus no baggage
 			{2, false, JSON, baggageValue},
 			{2, true, JSON, baggageValue},
 			{2, false, Thrift, baggageValue},
@@ -362,9 +362,8 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 		assert.NotEqual(t, uint64(0), rootSpan.TraceID())
 	}
 
-	// in Raw mode with tracingDisabled, non-Zipkin traces are not propagated,
+	// TODO in Raw mode with tracingDisabled, non-Zipkin traces are not propagated,
 	// and neither is the notSampled flag, so some downstream spans are still reported.
-	// FIXME need to propagate tracingDisabled via Tracing field.
 	if test.tracingDisabled && (test.format != Raw || tracer.zipkinCompatible) {
 		assert.Equal(t, startSpanCount, endSpanCount, "Expecting 0 new spans recorded; %s", descr)
 	} else if !tracer.isFake {

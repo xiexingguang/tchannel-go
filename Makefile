@@ -116,7 +116,7 @@ else
 	@echo "Not checking gofmt on" $(GO_VERSION)
 endif
 	@echo "Checking for unresolved FIXMEs"
-	-git grep -i fixme | $(FILTER) | grep -v -e Makefile | tee -a lint.log
+	-git grep -i -n fixme | $(FILTER) | grep -v -e Makefile | tee -a lint.log
 	@[ ! -s lint.log ]
 else
 	@echo "Skipping linters on" $(GO_VERSION)
