@@ -28,6 +28,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	"golang.org/x/net/context"
+	"log"
 )
 
 var errInboundRequestAlreadyActive = errors.New("inbound request is already active; possible duplicate client id")
@@ -379,6 +380,7 @@ func (response *InboundCallResponse) doneSending() {
 		if response.applicationError || response.systemError {
 			span.SetTag("error", true)
 		}
+		log.Printf("Finishing inbound span %+v", span)
 		span.FinishWithOptions(opentracing.FinishOptions{FinishTime: now})
 	}
 

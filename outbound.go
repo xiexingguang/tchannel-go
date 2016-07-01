@@ -27,6 +27,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/uber/tchannel-go/typed"
 	"golang.org/x/net/context"
+	"log"
 )
 
 // maxMethodSize is the maximum size of arg1.
@@ -310,13 +311,15 @@ func (response *OutboundCallResponse) doneReading(unexpected error) {
 	isSuccess := unexpected == nil && !response.ApplicationError()
 	lastAttempt := isSuccess || !response.requestState.HasRetries(unexpected)
 
+	// TODO how should this work with retries
 	if span := response.span; span != nil {
-		if !isSuccess {
-			span.SetTag("error", true)
-		}
 		if unexpected != nil {
 			span.LogEventWithPayload("error", unexpected)
 		}
+		if !isSuccess && lastAttempt {
+			span.SetTag("error", true)
+		}
+		log.Printf("Finishing outbound span %+v", span)
 		span.FinishWithOptions(opentracing.FinishOptions{FinishTime: now})
 	}
 
