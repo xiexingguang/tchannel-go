@@ -22,9 +22,9 @@ imports:
 - name: github.com/jessevdk/go-flags
   version: f2785f5820ec967043de79c8be97edfc464ca745
 - name: github.com/opentracing/basictracer-go
-  version: 54a2279302e12cf6c08234574f699c970059ca30
+  version: c17acf9d41472937a20c1c11941a6320b1f317bb
 - name: github.com/opentracing/opentracing-go
-  version: b8840d2500f77035f8475e2cdde65b529c5bd17b
+  version: 9e6d3e21876169b028e75016a19d75c4ad54cb11
   subpackages:
   - ext
 - name: github.com/pmezard/go-difflib
@@ -50,7 +50,7 @@ imports:
 - name: github.com/uber-go/atomic
   version: e682c1008ac17bf26d2e4b5ad6cdd08520ed0b22
 - name: github.com/uber/jaeger-client-go
-  version: ff8409d9165848ff60cb9e8aa218bc1722408d7b
+  version: cdb6629b30315e3138ee8ac900995f1b9666f9c0
 - name: golang.org/x/net
   version: 04557861f124410b768b1ba5bb3a91b705afbfc6
   subpackages:
