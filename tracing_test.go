@@ -494,7 +494,7 @@ func TestTracingSpans(t *testing.T) {
 
 		// Spans are finished in inbound.doneSending() or outbound.doneReading(),
 		// which are called on different go-routines and may execute *after* the
-		// response has been received by the client. Give them a chance to run.
+		// response has been received by the client. Give them a chance to finish.
 		for i := 0; i < 100; i++ {
 			if spanCount := len(basicRecorder.GetSampledSpans()); spanCount == 2 {
 				break
