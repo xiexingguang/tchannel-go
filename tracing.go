@@ -22,7 +22,6 @@ package tchannel
 
 import (
 	"fmt"
-	"log" // TODO remove logging
 	"net"
 	"strconv"
 	"time"
@@ -124,7 +123,6 @@ func (s *Span) initFromOpenTracing(span opentracing.Span) {
 
 func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodName string, call *OutboundCall, startTime time.Time) opentracing.Span {
 	parentSpan := opentracing.SpanFromContext(ctx)
-	log.Printf("parent span %+v", parentSpan)
 	span := c.Tracer().StartSpanWithOptions(opentracing.StartSpanOptions{
 		OperationName: serviceName + "::" + methodName,
 		Parent:        parentSpan,
@@ -133,7 +131,6 @@ func (c *Connection) startOutboundSpan(ctx context.Context, serviceName, methodN
 	if isTracingDisabled(ctx) {
 		ext.SamplingPriority.Set(span, 0)
 	}
-	log.Printf("child span %+v", span)
 	ext.SpanKind.Set(span, ext.SpanKindRPCClient)
 	ext.PeerService.Set(span, serviceName)
 	setPeerHostPort(span, c.remotePeerInfo.HostPort)
@@ -159,17 +156,14 @@ func InjectOutboundSpan(response *OutboundCallResponse, headers map[string]strin
 }
 
 func (c *Connection) extractInboundSpan(callReq *callReq) opentracing.Span {
-	log.Printf("incoming TChannel span: %+v", callReq.Tracing)
 	span, err := c.Tracer().Join("", ZipkinSpanFormat, &callReq.Tracing)
 	if span != nil {
 		ext.SpanKind.Set(span, ext.SpanKindRPCServer)
 		ext.PeerService.Set(span, callReq.Headers[CallerName])
 		span.SetTag("as", callReq.Headers[ArgScheme])
 		setPeerHostPort(span, c.remotePeerInfo.HostPort)
-		log.Printf("inbound span extracted: %+v", span)
 		return span
 	}
-	log.Printf("unable to parse span: %+v", err)
 	if err != opentracing.ErrUnsupportedFormat && err != opentracing.ErrTraceNotFound {
 		c.log.Error("Failed to extract Zipkin-style span: " + err.Error())
 	}
@@ -184,7 +178,6 @@ func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[stri
 	var span = call.Response().span
 	operationName := call.ServiceName() + "::" + call.MethodString()
 	if span != nil {
-		log.Printf("found span %+v\n", span)
 		// copy baggage from headers
 		if headers != nil {
 			carrier := opentracing.TextMapCarrier(headers)
@@ -198,7 +191,6 @@ func ExtractInboundSpan(ctx context.Context, call *InboundCall, headers map[stri
 			}
 		}
 	} else {
-		log.Printf("Trying to extract span from app headers %+v", headers)
 		if headers != nil {
 			carrier := opentracing.TextMapCarrier(headers)
 			if sp, _ := tracer.Join(operationName, opentracing.TextMap, carrier); sp != nil {

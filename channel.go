@@ -140,11 +140,10 @@ type channelConnectionCommon struct {
 // Tracer returns the OpenTracing Tracer for this channel.
 // If no tracer was provided in the configuration, returns opentracing.GlobalTracer().
 func (ccc channelConnectionCommon) Tracer() opentracing.Tracer {
-	tracer := ccc.tracer
-	if tracer == nil {
-		tracer = opentracing.GlobalTracer()
+	if ccc.tracer != nil {
+		return ccc.tracer
 	}
-	return tracer
+	return opentracing.GlobalTracer()
 }
 
 // NewChannel creates a new Channel.  The new channel can be used to send outbound requests

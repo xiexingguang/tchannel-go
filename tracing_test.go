@@ -23,7 +23,6 @@ package tchannel_test
 import (
 	json_encoding "encoding/json"
 	"fmt"
-	"log" // TODO remove logging
 	"testing"
 	"time"
 
@@ -236,7 +235,8 @@ type basicTracerLoggingRecorder struct {
 }
 
 func (r *basicTracerLoggingRecorder) RecordSpan(span basictracer.RawSpan) {
-	log.Printf("Basic tracer recording span %+v", span)
+	// To actually enable logging, uncomment below
+	// log.Printf("Basic tracer recording span %+v", span)
 	r.recorder.RecordSpan(span)
 }
 
@@ -244,7 +244,9 @@ func TestTracingPropagation(t *testing.T) {
 	jaegerReporter := jaeger.NewInMemoryReporter()
 	jaegerTracer, jaegerCloser := jaeger.NewTracer(testutils.DefaultServerName,
 		jaeger.NewConstSampler(true),
-		jaeger.NewCompositeReporter(jaegerReporter, jaeger.NewLoggingReporter(jaeger.StdLogger)))
+		jaegerReporter)
+	// To enable logging, use composite reporter:
+	// jaeger.NewCompositeReporter(jaegerReporter, jaeger.NewLoggingReporter(jaeger.StdLogger)))
 	defer jaegerCloser.Close()
 	jaeger := tracerChoice{
 		tracerType:       Jaeger,
@@ -373,8 +375,8 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 	test propagationTest,
 ) {
 	descr := fmt.Sprintf("test %+v with tracer %+v", test, tracer)
-	log.Print("")
-	log.Printf("======> STARTING %s", descr)
+	h.ch.Logger().Debug("")
+	h.ch.Logger().Debugf("======> STARTING %s", descr)
 
 	tracer.resetSpans()
 
@@ -407,7 +409,7 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 		require.NoError(t, err)
 		response.fromThrift(t, res)
 	}
-	log.Printf("Top test response %+v", response)
+	h.ch.Logger().Debugf("Top test response %+v", response)
 
 	// Spans are finished in inbound.doneSending() or outbound.doneReading(),
 	// which are called on different go-routines and may execute *after* the
@@ -419,7 +421,7 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 		time.Sleep(time.Millisecond) // max wait: 100ms
 	}
 	spanCount := tracer.spansRecorded()
-	log.Printf("end span count: %d", spanCount)
+	h.ch.Logger().Debugf("end span count: %d", spanCount)
 
 	// finish span after taking count of recorded spans, as we're only interested
 	// in the count of spans created by RPC calls.
