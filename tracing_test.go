@@ -109,6 +109,24 @@ func (r *TracingResponse) toThrift(t *testing.T) *gen.Data {
 	return &gen.Data{S2: string(jsonBytes)}
 }
 
+func (r *TracingResponse) observeSpan(ctx context.Context) *TracingResponse {
+	if span := opentracing.SpanFromContext(ctx); span != nil {
+		if basicSpan, ok := span.(basictracer.Span); ok {
+			r.TraceID = basicSpan.Context().TraceID
+			r.SpanID = basicSpan.Context().SpanID
+			r.ParentID = basicSpan.Context().ParentSpanID
+			r.TracingEnabled = basicSpan.Context().Sampled
+		} else if span := CurrentSpan(ctx); span != nil {
+			r.TraceID = span.TraceID()
+			r.SpanID = span.SpanID()
+			r.ParentID = span.ParentID()
+			r.TracingEnabled = span.Flags()&1 == 1
+		}
+		r.Luggage = span.BaggageItem(baggageKey)
+	}
+	return r
+}
+
 const (
 	baggageKey   = "luggage"
 	baggageValue = "suitcase"
@@ -133,24 +151,7 @@ func (h *traceHandler) handleCall(
 	}
 
 	resp := &TracingResponse{Child: childResp}
-
-	if span := CurrentSpan(ctx); span != nil {
-		resp.TraceID = span.TraceID()
-		resp.SpanID = span.SpanID()
-		resp.ParentID = span.ParentID()
-		resp.TracingEnabled = span.Flags()&1 == 1
-	} else if span := opentracing.SpanFromContext(ctx); span != nil {
-		if basicSpan, ok := span.(basictracer.Span); ok {
-			resp.TraceID = basicSpan.Context().TraceID
-			resp.SpanID = basicSpan.Context().SpanID
-			resp.ParentID = basicSpan.Context().ParentSpanID
-			resp.TracingEnabled = basicSpan.Context().Sampled
-		}
-	}
-
-	if span := opentracing.SpanFromContext(ctx); span != nil {
-		resp.Luggage = span.BaggageItem(baggageKey)
-	}
+	resp.observeSpan(ctx)
 
 	return resp, nil
 }
@@ -257,13 +258,8 @@ func TestTracingPropagation(t *testing.T) {
 
 	basicRecorder := basictracer.NewInMemoryRecorder()
 	basicTracer := basictracer.NewWithOptions(basictracer.Options{
-		ShouldSample: func(traceID uint64) bool {
-			return true
-		},
-		Recorder: &basicTracerLoggingRecorder{basicRecorder},
-		NewSpanEventListener: func() func(basictracer.SpanEvent) {
-			return nil
-		},
+		ShouldSample: func(traceID uint64) bool { return true },
+		Recorder:     &basicTracerLoggingRecorder{basicRecorder},
 	})
 	basic := tracerChoice{
 		tracerType:    Basic,
@@ -427,22 +423,21 @@ func (h *traceHandler) testTracingPropagationWithEncoding(
 	// in the count of spans created by RPC calls.
 	span.Finish()
 
-	rootSpan := CurrentSpan(ctx)
-	require.NotNil(t, rootSpan)
+	root := new(TracingResponse).observeSpan(ctx)
 
-	if tracer.zipkinCompatible {
-		assert.Equal(t, uint64(0), rootSpan.ParentID())
-		assert.NotEqual(t, uint64(0), rootSpan.TraceID())
+	if !tracer.isFake {
+		assert.Equal(t, uint64(0), root.ParentID)
+		assert.NotEqual(t, uint64(0), root.TraceID)
 	}
 
 	assert.Equal(t, test.expectedSpanCount, spanCount, "Wrong span count; %s", descr)
 
 	for r, cnt := &response, 0; r != nil || cnt <= test.forwardCount; r, cnt = r.Child, cnt+1 {
 		require.NotNil(t, r, "Expecting response for forward=%d; %s", cnt, descr)
-		if tracer.zipkinCompatible {
-			assert.Equal(t, rootSpan.TraceID(), r.TraceID, "traceID should be the same; %s", descr)
-		}
 		if !tracer.isFake {
+			if tracer.zipkinCompatible || test.format != Raw {
+				assert.Equal(t, root.TraceID, r.TraceID, "traceID should be the same; %s", descr)
+			}
 			assert.Equal(t, test.expectedBaggage, r.Luggage, "baggage should propagate; %s", descr)
 		}
 	}
@@ -465,4 +460,76 @@ func TestTracingInjectorExtractor(t *testing.T) {
 	sp2, err := tracer.Join("z", ZipkinSpanFormat, tsp)
 	require.NoError(t, err)
 	require.NotNil(t, sp2)
+}
+
+func TestTracingSpans(t *testing.T) {
+	basicRecorder := basictracer.NewInMemoryRecorder()
+	basicTracer := basictracer.NewWithOptions(basictracer.Options{
+		ShouldSample: func(traceID uint64) bool { return true },
+		Recorder:     &basicTracerLoggingRecorder{basicRecorder},
+	})
+
+	opts := &testutils.ChannelOpts{
+		ChannelOptions: ChannelOptions{Tracer: basicTracer},
+		DisableRelay:   true,
+	}
+	WithVerifiedServer(t, opts, func(ch *Channel, hostPort string) {
+		handler := &traceHandler{t: t, ch: ch}
+		// Register JSON handler
+		jsonHandler := &JSONHandler{*handler}
+		json.Register(ch, json.Handlers{"call": jsonHandler.callJSON}, jsonHandler.onError)
+
+		span := ch.Tracer().StartSpan("client")
+		span.SetBaggageItem(baggageKey, baggageValue)
+		ctx := opentracing.ContextWithSpan(context.Background(), span)
+		root := new(TracingResponse).observeSpan(ctx)
+
+		ctx, cancel := NewContextBuilder(2 * time.Second).SetParentContext(ctx).Build()
+		defer cancel()
+
+		peer := ch.Peers().GetOrAdd(ch.PeerInfo().HostPort)
+		var response TracingResponse
+		require.NoError(t, json.CallPeer(json.Wrap(ctx), peer, ch.PeerInfo().ServiceName,
+			"call", &TracingRequest{ForwardCount: 0}, &response))
+
+		// Spans are finished in inbound.doneSending() or outbound.doneReading(),
+		// which are called on different go-routines and may execute *after* the
+		// response has been received by the client. Give them a chance to run.
+		for i := 0; i < 100; i++ {
+			if spanCount := len(basicRecorder.GetSampledSpans()); spanCount == 2 {
+				break
+			}
+			time.Sleep(time.Millisecond) // max wait: 100ms
+		}
+		spans := basicRecorder.GetSampledSpans()
+		spanCount := len(spans)
+		ch.Logger().Debugf("end span count: %d", spanCount)
+
+		// finish span after taking count of recorded spans
+		span.Finish()
+
+		require.Equal(t, 2, spanCount, "Wrong span count")
+		assert.Equal(t, root.TraceID, response.TraceID, "Trace ID must match root span")
+		assert.Equal(t, baggageValue, response.Luggage, "Baggage must match")
+
+		parent := spans[1]
+		child := spans[0]
+
+		assert.Equal(t, parent.Context.TraceID, child.Context.TraceID)
+		assert.Equal(t, parent.Context.SpanID, child.Context.ParentSpanID)
+		assert.True(t, parent.Context.Sampled)
+		assert.True(t, child.Context.Sampled)
+		assert.Equal(t, "testService::call", parent.Operation)
+		assert.Equal(t, "testService::call", child.Operation)
+		assert.EqualValues(t, "client", parent.Tags["span.kind"])
+		assert.EqualValues(t, "server", child.Tags["span.kind"])
+		assert.Equal(t, "testService", parent.Tags["peer.service"])
+		assert.Equal(t, "testService", child.Tags["peer.service"])
+		assert.Equal(t, "json", parent.Tags["as"])
+		assert.Equal(t, "json", child.Tags["as"])
+		assert.NotNil(t, parent.Tags["peer.hostname"])
+		assert.NotNil(t, child.Tags["peer.hostname"])
+		assert.NotNil(t, parent.Tags["peer.port"])
+		assert.NotNil(t, child.Tags["peer.port"])
+	})
 }
