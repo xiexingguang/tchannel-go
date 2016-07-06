@@ -35,6 +35,7 @@ import (
 
 	"github.com/opentracing/basictracer-go"
 	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uber/jaeger-client-go"
@@ -514,19 +515,23 @@ func TestTracingSpans(t *testing.T) {
 
 		var parent, child basictracer.RawSpan
 		for _, s := range spans {
-			if s.Tags["span.kind"] == "client" {
-				child = s
-			} else if s.Tags["span.kind"] == "server" {
+			if s.Tags["span.kind"] == ext.SpanKindRPCClient {
 				parent = s
+				ch.Logger().Debugf("Found parent span: %+v", s)
+			} else if s.Tags["span.kind"] == ext.SpanKindRPCServer {
+				child = s
+				ch.Logger().Debugf("Found child span: %+v", s)
 			}
 		}
 
-		require.NotNil(t, parent)
-		require.NotNil(t, child)
-		assert.Equal(t, parent.Context.TraceID, child.Context.TraceID)
-		assert.Equal(t, parent.Context.SpanID, child.Context.ParentSpanID)
-		assert.True(t, parent.Context.Sampled)
-		assert.True(t, child.Context.Sampled)
+		traceID := span.(basictracer.Span).Context().TraceID
+
+		require.Equal(t, traceID, parent.TraceID, "parent must be found")
+		require.Equal(t, traceID, child.TraceID, "child must be found")
+		assert.Equal(t, parent.TraceID, child.TraceID)
+		assert.Equal(t, parent.SpanID, child.ParentSpanID)
+		assert.True(t, parent.Sampled, "should be sampled")
+		assert.True(t, child.Sampled, "should be sampled")
 		assert.Equal(t, "testService::call", parent.Operation)
 		assert.Equal(t, "testService::call", child.Operation)
 		assert.Equal(t, "testService", parent.Tags["peer.service"])
