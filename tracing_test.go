@@ -217,9 +217,9 @@ func (h *ThriftHandler) Simple(ctx thrift.Context) error {
 type TracerType string
 
 const (
-	Noop   TracerType = "NOOP"
-	Basic  TracerType = "BASIC"
-	Jaeger TracerType = "JAEGER"
+	Noop   TracerType = "NOOP"   // default no-op tracer from OpenTracing
+	Basic  TracerType = "BASIC"  // reference implementation, baggage-capable, not Zipkin trace IDs
+	Jaeger TracerType = "JAEGER" // Uber's tracer, baggage-capable, Zipkin-style trace IDs
 )
 
 type tracerChoice struct {
