@@ -47,7 +47,7 @@ get_thrift:
 install:
 	glide --debug install --cache --cache-gopath
 	rm -rf vendor
-	(cd $GOPATH/src/github.com/opentracing/opentracing-go/; git log | head)
+	(cd $$GOPATH/src/github.com/opentracing/opentracing-go/; git log | head)
 ifdef SHOULD_LINT
 	@echo "Installing golint, since we expect to lint on" $(GO_VERSION)
 	go get -u -f github.com/golang/lint/golint
