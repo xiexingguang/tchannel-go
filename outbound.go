@@ -24,11 +24,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/opentracing/opentracing-go"
-	"golang.org/x/net/context"
-
-	"github.com/opentracing/opentracing-go/ext"
 	"github.com/uber/tchannel-go/typed"
+
+	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
+	"golang.org/x/net/context"
 )
 
 // maxMethodSize is the maximum size of arg1.

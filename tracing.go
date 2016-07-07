@@ -26,12 +26,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/uber/tchannel-go/trand"
+	"github.com/uber/tchannel-go/typed"
+
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	"golang.org/x/net/context"
-
-	"github.com/uber/tchannel-go/trand"
-	"github.com/uber/tchannel-go/typed"
 )
 
 // ZipkinSpanFormat defines a name for OpenTracing carrier format that tracer may support.
