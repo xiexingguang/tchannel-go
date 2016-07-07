@@ -305,9 +305,9 @@ func TestResponseClosedBeforeRequest(t *testing.T) {
 			defer close(writerDone)
 
 			for i := 0; i < 10; i++ {
-				assert.NoError(t, writeFlushBytes(arg3Writer, []byte{1}), "Write failed")
+				assert.NoError(t, writeFlushBytes(arg3Writer, []byte{1}), "Write %v failed", i)
 			}
-			assert.NoError(t, writeFlushBytes(arg3Writer, []byte{streamRequestClose}), "Write failed")
+			assert.NoError(t, writeFlushBytes(arg3Writer, []byte{streamRequestClose}), "Write request close failed")
 
 			// Wait until our reader gets the EOF.
 			<-responseClosed
