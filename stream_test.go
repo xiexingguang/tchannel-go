@@ -288,7 +288,8 @@ func TestStreamCancelled(t *testing.T) {
 }
 
 func TestResponseClosedBeforeRequest(t *testing.T) {
-	testutils.WithTestServer(t, nil, func(ts *testutils.TestServer) {
+	opts := testutils.NewOpts().SetRunCount(1000)
+	testutils.WithTestServer(t, opts, func(ts *testutils.TestServer) {
 		ts.Register(streamPartialHandler(t, false /* report errors */), "echoStream")
 
 		ctx, cancel := NewContext(testutils.Timeout(time.Second))
