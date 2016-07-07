@@ -12,7 +12,7 @@ endif
 
 PATH := $(GOPATH)/bin:$(PATH)
 EXAMPLES=./examples/bench/server ./examples/bench/client ./examples/ping ./examples/thrift ./examples/hyperbahn/echo-server
-PKGS := . ./json ./hyperbahn ./thrift ./typed $(EXAMPLES)
+PKGS := . ./json ./hyperbahn ./thrift ./typed ./trace $(EXAMPLES)
 TEST_ARG ?= -race -v -timeout 5m
 BUILD := ./build
 THRIFT_GEN_RELEASE := ./thrift-gen-release
@@ -55,10 +55,9 @@ get_thrift:
 # Note that glide itself is still executed against the original GOPATH.
 install:
 	GOPATH=$(OLD_GOPATH) glide --debug install --cache --cache-gopath
-	[ -d $(VENDOR_PATH) ] && rm -rf $(VENDOR_PATH) || true
-	mkdir -p $(VENDOR_PATH)/src
-	mv vendor/* $(VENDOR_PATH)/src/
-	rm -rf vendor
+	rm -rf $(VENDOR_PATH)
+	mkdir -p $(VENDOR_PATH)
+	mv vendor $(VENDOR_PATH)/src
 
 install_lint:
 ifdef SHOULD_LINT
@@ -130,11 +129,12 @@ else
 	@echo "Not checking gofmt on" $(GO_VERSION)
 endif
 	@echo "Checking for unresolved FIXMEs"
-	-git grep -i -n fixme | $(FILTER) | grep -v -e Makefile | tee -a lint.log
+	-git grep -i fixme | $(FILTER) | grep -v -e Makefile | tee -a lint.log
 	@[ ! -s lint.log ]
 else
 	@echo "Skipping linters on" $(GO_VERSION)
 endif
+
 
 thrift_example: thrift_gen
 	go build -o $(BUILD)/examples/thrift       ./examples/thrift/main.go
