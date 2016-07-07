@@ -305,14 +305,17 @@ func TestResponseClosedBeforeRequest(t *testing.T) {
 			defer close(writerDone)
 
 			for i := 0; i < 10; i++ {
+				ch.Logger().Debug("write out byte with 1")
 				assert.NoError(t, writeFlushBytes(arg3Writer, []byte{1}), "Write %v failed", i)
 			}
+			ch.Logger().Debug("write out byte with close")
 			assert.NoError(t, writeFlushBytes(arg3Writer, []byte{streamRequestClose}), "Write request close failed")
 
 			// Wait until our reader gets the EOF.
 			<-responseClosed
 
 			// Now our writes should fail, since the stream is shutdown
+			ch.Logger().Debug("try to write something that should fail")
 			err := writeFlushBytes(arg3Writer, []byte{1})
 			if assert.Error(t, err, "Req write should fail since response stream ended") {
 				assert.Contains(t, err.Error(), "mex has been shutdown")
@@ -322,6 +325,7 @@ func TestResponseClosedBeforeRequest(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			arg3 := make([]byte, 1)
 			n, err := arg3Reader.Read(arg3)
+			ch.Logger().Debugf("try to read something got %v %v %v", n, err, arg3)
 			assert.Equal(t, 1, n, "Read did not correct number of bytes")
 			assert.NoError(t, err, "Read failed")
 		}
